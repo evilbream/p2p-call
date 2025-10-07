@@ -22,6 +22,7 @@ COPY --from=build /app/.env* ./
 
 # Make binary executable
 RUN chmod +x p2p-call
+EXPOSE 8443
 
 # Run the application
 CMD ["./p2p-call"]

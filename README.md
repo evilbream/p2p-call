@@ -27,4 +27,7 @@ docker build -t p2p-call .
 ### Run interactively with environment file
 ```bash
 docker run -it --env-file .env p2p-call
+# HTTP port 8080 and HTTPS port 8443
+docker run -it --env-file .env -p 8442:8443 p2p-call
+
 ```

@@ -23,7 +23,7 @@ func findFileInProjectRoot(filename string) (string, error) {
 		}
 		dir = parentDir
 	}
-	return "", os.ErrNotExist // Project root not found
+	return "", os.ErrNotExist // file not found in project root
 }
 
 // LoadEnv loads environment variables from a .env file. If the file is not found in the current directory,
