@@ -3,12 +3,11 @@ module p2p-call
 go 1.24.3
 
 require (
+	github.com/hraban/opus v0.0.0-20230925203106-0188a62cb302
 	github.com/pion/stun v0.6.1
-	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 )
 
 require (
-	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b // indirect
 	github.com/pion/dtls/v3 v3.0.7 // indirect
 	github.com/pion/ice/v4 v4.0.10 // indirect
 	github.com/pion/mdns/v2 v2.0.7 // indirect
@@ -19,8 +18,8 @@ require (
 )
 
 require (
+	github.com/gen2brain/malgo v0.11.24
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3
 	github.com/pion/datachannel v1.5.10 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/interceptor v0.1.41 // indirect

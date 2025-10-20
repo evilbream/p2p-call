@@ -3,8 +3,11 @@ package main
 import (
 	"log"
 	"os"
-	"p2p-call/internal/audio/webaudio"
-	webrtccon "p2p-call/internal/webrtc_con"
+	"p2p-call/internal/audio/capture"
+	"p2p-call/internal/audio/handler"
+	"p2p-call/internal/audio/playback"
+	"p2p-call/internal/connection/rtc"
+	"p2p-call/pkg/interface/desktop"
 	"p2p-call/pkg/system"
 )
 
@@ -18,28 +21,35 @@ func loadEnv() {
 	}
 }
 
-func peerConnection(webrtccon webrtccon.WebRtcConnector) {
-	if err := webrtccon.Connect(1); err != nil {
-		log.Printf("First attempt failed: %v", err)
-		log.Println("Retrying with TURN servers...")
-		if err := webrtccon.Connect(2); err != nil {
-			log.Fatalf("Second attempt failed: %v", err)
-		}
-	}
-}
-
 func main() {
 	loadEnv()
-
-	audioHandler, err := webaudio.NewAudioHandler()
+	audioHandler, err := handler.NewDesktopAudio()
 	if err != nil {
-		log.Fatalf("Failed to create audio handler: %v", err)
+		panic(err)
 	}
 
-	webrtccon := webrtccon.WebRtcConnector{Audio: audioHandler}
-	//wh := &connection.WebsocketHandler{Audio: audioHandler}
+	// init peer connection
+	errorChannel := make(chan error, 10)
+	webRtcCon := rtc.Connection{Audio: audioHandler, Connectionchannel: errorChannel}
+	go webRtcCon.Connect(1)
+	// wait for connection to be established
+	if err := <-webRtcCon.Connectionchannel; err != nil {
+		log.Fatal("Failed to establish WebRTC connection:", err)
+	}
+	// init play system
+	capture, err := capture.NewMalgoCapture(audioHandler.AudioCaptureChan)
+	if err != nil {
+		panic(err)
+	}
+	playback, err := playback.NewMalgoPlayback(audioHandler.PlayAudioChan)
+	if err != nil {
+		panic(err)
+	}
+	desktopIface, err := desktop.NewDesktopInterface(capture, playback)
+	if err != nil {
+		panic(err)
+	}
 
-	//go web.StartWebInterface(wh)
-	go peerConnection(webrtccon)
-	select {} // block forever
+	desktopIface.StartDesktopInterface()
+
 }

@@ -1,4 +1,4 @@
-package webrtccon
+package rtc
 
 import (
 	"bufio"
@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"p2p-call/internal/audio"
+	"p2p-call/internal/audio/handler"
 	"p2p-call/pkg/config"
 	"p2p-call/pkg/system"
 	"strings"
@@ -15,8 +15,9 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-type WebRtcConnector struct {
-	Audio audio.AudioHandlerInterface
+type Connection struct {
+	Audio             handler.AudioHandlerInterface
+	Connectionchannel chan error
 }
 
 type SignalData struct {
@@ -26,7 +27,11 @@ type SignalData struct {
 	SessionID string                     `json:"session_id"`
 }
 
-func (wc WebRtcConnector) Connect(attempt int) error {
+// returns connection result error, nil if success
+func (con Connection) Connect(attempt int) error {
+	if con.Connectionchannel == nil {
+		con.Connectionchannel = make(chan error, 10)
+	}
 	// create nat config
 	log.Println("Trying connection with config attempt ", attempt)
 	config := createConfigForNATType(attempt)
@@ -91,8 +96,7 @@ func (wc WebRtcConnector) Connect(attempt int) error {
 	sessionID := system.GenerateSessionID()
 	fmt.Printf("Session ID: %s\n", sessionID)
 
-	connectionResult := make(chan error) // channel to signal connection result and retry on error
-	wc.setupEventHandlers(peerConnection, dataChannel, sessionID, connectionResult)
+	con.setupEventHandlers(peerConnection, dataChannel, sessionID)
 
 	fmt.Println("What to do?:")
 	fmt.Println("1. send an offer")
@@ -103,7 +107,7 @@ func (wc WebRtcConnector) Connect(attempt int) error {
 	choice, _ := reader.ReadString('\n')
 	choice = strings.TrimSpace(choice)
 
-	go wc.Audio.StartAudioCapture(audioTrack)
+	go con.Audio.StartAudioCapture(audioTrack)
 
 	switch choice {
 	case "1":
@@ -114,12 +118,7 @@ func (wc WebRtcConnector) Connect(attempt int) error {
 		log.Fatal("Invalid choice")
 	}
 
-	err = <-connectionResult
-	if err != nil {
-		return err
-	}
-
-	select {}
+	select {} // keep connection alive
 }
 
 func createConfigForNATType(attempt int) webrtc.Configuration {
@@ -147,7 +146,7 @@ func createConfigForNATType(attempt int) webrtc.Configuration {
 	return config
 }
 
-func (wc WebRtcConnector) setupEventHandlers(pc *webrtc.PeerConnection, dc *webrtc.DataChannel, sessionID string, connectionResult chan error) error {
+func (con Connection) setupEventHandlers(pc *webrtc.PeerConnection, dc *webrtc.DataChannel, sessionID string) error {
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate != nil {
 			var connType string
@@ -180,14 +179,15 @@ func (wc WebRtcConnector) setupEventHandlers(pc *webrtc.PeerConnection, dc *webr
 		switch state {
 		case webrtc.ICEConnectionStateConnected:
 			log.Println("Ice connection is set!")
-			connectionResult <- nil // signal successful connection
 		case webrtc.ICEConnectionStateFailed:
 			log.Println("Ice connection failed")
-			connectionResult <- fmt.Errorf("ice connection failed")
+			con.Connectionchannel <- fmt.Errorf("ice connection failed")
 		case webrtc.ICEConnectionStateDisconnected:
 			log.Println("ICE disconnected...")
+			con.Connectionchannel <- fmt.Errorf("ice disconnected")
 		case webrtc.ICEConnectionStateClosed:
 			log.Println("ICE connection closed ")
+			con.Connectionchannel <- fmt.Errorf("ice connection closed")
 
 		}
 	})
@@ -197,11 +197,11 @@ func (wc WebRtcConnector) setupEventHandlers(pc *webrtc.PeerConnection, dc *webr
 		switch state {
 		case webrtc.PeerConnectionStateConnected:
 			log.Println("Peer connection established")
-			log.Println("You can start typing messages now!")
-
+			log.Println("You can start messaging!")
+			con.Connectionchannel <- nil // signal successful connection
 		case webrtc.PeerConnectionStateFailed:
 			log.Println("Peer connection failed")
-			connectionResult <- fmt.Errorf("peer connection failed")
+			con.Connectionchannel <- fmt.Errorf("peer connection failed")
 
 		case webrtc.PeerConnectionStateClosed:
 			log.Println("Peer connection closed")
@@ -210,9 +210,9 @@ func (wc WebRtcConnector) setupEventHandlers(pc *webrtc.PeerConnection, dc *webr
 		}
 	})
 
-	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		setupDataChannelHandlers(dc, sessionID)
-	})
+	//pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+	//	setupDataChannelHandlers(dc, sessionID)
+	//})
 
 	// its stream not
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
@@ -220,12 +220,12 @@ func (wc WebRtcConnector) setupEventHandlers(pc *webrtc.PeerConnection, dc *webr
 
 		if track.Kind() == webrtc.RTPCodecTypeAudio {
 			log.Println("Audio track received from peer")
-			go wc.Audio.HandleIncomingAudio(track)
+			go con.Audio.HandleIncomingAudio(track)
 		}
 	})
 
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(500 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
@@ -247,7 +247,7 @@ func (wc WebRtcConnector) setupEventHandlers(pc *webrtc.PeerConnection, dc *webr
 		}
 	}()
 
-	setupDataChannelHandlers(dc, sessionID)
+	//setupDataChannelHandlers(dc, sessionID)
 	return nil
 }
 
@@ -271,25 +271,6 @@ func setupAudioTrack(pc *webrtc.PeerConnection) (*webrtc.TrackLocalStaticSample,
 
 	log.Printf("Audio track added: %s", rtpSender.Track().ID())
 	return audioTrack, nil
-}
-
-func setupDataChannelHandlers(dc *webrtc.DataChannel, sessionID string) {
-	dc.OnOpen(func() {
-		log.Println("Data channel opened")
-		go handleUserInput(dc, sessionID)
-	})
-
-	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		log.Printf("%s\n", string(msg.Data))
-	})
-
-	dc.OnClose(func() {
-		log.Println("Message channel closed")
-	})
-
-	dc.OnError(func(err error) {
-		log.Println("Data channel error:", err)
-	})
 }
 
 func handleUserInput(dc *webrtc.DataChannel, sessionID string) {
