@@ -3,9 +3,8 @@ package main
 import (
 	"log"
 	"os"
-	"p2p-call/internal/audio/capture"
-	"p2p-call/internal/audio/handler"
-	"p2p-call/internal/audio/playback"
+	"p2p-call/internal/audio/config"
+	"p2p-call/internal/audio/pipeline"
 	"p2p-call/internal/connection/rtc"
 	"p2p-call/pkg/interface/desktop"
 	"p2p-call/pkg/system"
@@ -21,33 +20,40 @@ func loadEnv() {
 	}
 }
 
+func readConnectionLog(connErrors chan error) {
+	for { // todo  remove it and make better
+		err := <-connErrors
+		if err != nil {
+			log.Println("Connection error:", err)
+		}
+	}
+}
+
 func main() {
 	loadEnv()
-	audioHandler, err := handler.NewDesktopAudio()
-	if err != nil {
-		panic(err)
-	}
+	audioCfg := config.NewOpusConfig() //  can choose specific config here
 
+	// connect to audio pipeline
+	pipeline, err := pipeline.NewAudioPipeline(audioCfg)
+	if err != nil {
+		//log.Fatal("Failed to create audio pipeline:", err)
+		log.Printf("Failed to create audio pipeline %v", err)
+		select {} // to check error in console
+	}
+	defer pipeline.Close()
+
+	webRtcCon := rtc.NewConnection(pipeline, "opus")
 	// init peer connection
-	errorChannel := make(chan error, 10)
-	webRtcCon := rtc.Connection{Audio: audioHandler, Connectionchannel: errorChannel}
 	go webRtcCon.Connect(1)
 	// wait for connection to be established
 	if err := <-webRtcCon.Connectionchannel; err != nil {
 		log.Fatal("Failed to establish WebRTC connection:", err)
 	}
-	// init play system
-	capture, err := capture.NewMalgoCapture(audioHandler.AudioCaptureChan)
+	go readConnectionLog(webRtcCon.Connectionchannel)
+
+	desktopIface, err := desktop.NewDesktopInterface(pipeline.Capture, pipeline.Playback)
 	if err != nil {
-		panic(err)
-	}
-	playback, err := playback.NewMalgoPlayback(audioHandler.PlayAudioChan)
-	if err != nil {
-		panic(err)
-	}
-	desktopIface, err := desktop.NewDesktopInterface(capture, playback)
-	if err != nil {
-		panic(err)
+		log.Printf("Failed to create desktop interface %v", err)
 	}
 
 	desktopIface.StartDesktopInterface()

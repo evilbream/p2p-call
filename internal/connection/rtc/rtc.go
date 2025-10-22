@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"p2p-call/internal/audio/handler"
+	"p2p-call/internal/audio/pipeline"
 	"p2p-call/pkg/config"
 	"p2p-call/pkg/system"
 	"strings"
@@ -16,8 +16,9 @@ import (
 )
 
 type Connection struct {
-	Audio             handler.AudioHandlerInterface
+	Pipeline          *pipeline.AudioPipeline
 	Connectionchannel chan error
+	Codec             string
 }
 
 type SignalData struct {
@@ -27,11 +28,19 @@ type SignalData struct {
 	SessionID string                     `json:"session_id"`
 }
 
+func NewConnection(pipeline *pipeline.AudioPipeline, codec string) *Connection {
+	if codec == "" {
+		codec = "opus" // default codec
+	}
+	return &Connection{
+		Pipeline:          pipeline,
+		Connectionchannel: make(chan error, 1),
+		Codec:             codec,
+	}
+}
+
 // returns connection result error, nil if success
 func (con Connection) Connect(attempt int) error {
-	if con.Connectionchannel == nil {
-		con.Connectionchannel = make(chan error, 10)
-	}
 	// create nat config
 	log.Println("Trying connection with config attempt ", attempt)
 	config := createConfigForNATType(attempt)
@@ -74,29 +83,15 @@ func (con Connection) Connect(attempt int) error {
 	}
 	defer peerConnection.Close()
 
-	audioTrack, err := setupAudioTrack(peerConnection)
+	audioTrack, err := setupAudioTrack(peerConnection, con.Codec)
 	if err != nil {
 		log.Fatalf("Failed to setup audio track: %v", err)
-	}
-
-	// DataChannel options
-	isOrdered := true
-	maxRetransmits := uint16(15)
-
-	dcOptions := &webrtc.DataChannelInit{
-		Ordered:        &isOrdered, // keep message order
-		MaxRetransmits: &maxRetransmits,
-	}
-
-	dataChannel, err := peerConnection.CreateDataChannel("messages", dcOptions)
-	if err != nil {
-		log.Fatalf("failed to create DataChannel: %v", err)
 	}
 
 	sessionID := system.GenerateSessionID()
 	fmt.Printf("Session ID: %s\n", sessionID)
 
-	con.setupEventHandlers(peerConnection, dataChannel, sessionID)
+	con.setupEventHandlers(peerConnection)
 
 	fmt.Println("What to do?:")
 	fmt.Println("1. send an offer")
@@ -107,7 +102,7 @@ func (con Connection) Connect(attempt int) error {
 	choice, _ := reader.ReadString('\n')
 	choice = strings.TrimSpace(choice)
 
-	go con.Audio.StartAudioCapture(audioTrack)
+	go con.Pipeline.StartSending(audioTrack)
 
 	switch choice {
 	case "1":
@@ -146,7 +141,7 @@ func createConfigForNATType(attempt int) webrtc.Configuration {
 	return config
 }
 
-func (con Connection) setupEventHandlers(pc *webrtc.PeerConnection, dc *webrtc.DataChannel, sessionID string) error {
+func (con Connection) setupEventHandlers(pc *webrtc.PeerConnection) error {
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate != nil {
 			var connType string
@@ -220,7 +215,7 @@ func (con Connection) setupEventHandlers(pc *webrtc.PeerConnection, dc *webrtc.D
 
 		if track.Kind() == webrtc.RTPCodecTypeAudio {
 			log.Println("Audio track received from peer")
-			go con.Audio.HandleIncomingAudio(track)
+			go con.Pipeline.StartReceiving(track)
 		}
 	})
 
@@ -247,16 +242,30 @@ func (con Connection) setupEventHandlers(pc *webrtc.PeerConnection, dc *webrtc.D
 		}
 	}()
 
-	//setupDataChannelHandlers(dc, sessionID)
 	return nil
 }
 
-func setupAudioTrack(pc *webrtc.PeerConnection) (*webrtc.TrackLocalStaticSample, error) {
-	audioTrack, err := webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{
+func setupAudioTrack(pc *webrtc.PeerConnection, codecType string) (*webrtc.TrackLocalStaticSample, error) {
+	var capability webrtc.RTPCodecCapability
+	switch codecType {
+	case "opus":
+		capability = webrtc.RTPCodecCapability{
 			MimeType:  webrtc.MimeTypeOpus,
 			Channels:  1,
-			ClockRate: 48000},
+			ClockRate: 48000,
+		}
+	case "pcmu":
+		capability = webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypePCMU,
+			Channels:  1,
+			ClockRate: 8000,
+		}
+	default:
+		return nil, fmt.Errorf("unsupported codec: %s", codecType)
+	}
+
+	audioTrack, err := webrtc.NewTrackLocalStaticSample(
+		capability,
 		"audio",
 		"microphone",
 	)
@@ -271,32 +280,6 @@ func setupAudioTrack(pc *webrtc.PeerConnection) (*webrtc.TrackLocalStaticSample,
 
 	log.Printf("Audio track added: %s", rtpSender.Track().ID())
 	return audioTrack, nil
-}
-
-func handleUserInput(dc *webrtc.DataChannel, sessionID string) {
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		if dc.ReadyState() == webrtc.DataChannelStateOpen {
-			fmt.Print("> ")
-			text, _ := reader.ReadString('\n')
-			text = strings.TrimSpace(text)
-
-			if text == "quit" || text == "exit" {
-				return
-			}
-
-			if text != "" {
-				message := fmt.Sprintf("[%s]: %s", sessionID, text)
-				err := dc.SendText(message)
-				if err != nil {
-					log.Println("Error sending message:", err)
-				}
-			}
-		} else {
-			log.Println("Data channel not open, waiting...")
-			time.Sleep(1 * time.Second)
-		}
-	}
 }
 
 func createAndSendOffer(pc *webrtc.PeerConnection, sessionID string) {

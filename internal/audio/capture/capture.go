@@ -5,19 +5,19 @@ import (
 	"log"
 	"os"
 	"p2p-call/internal/audio/config"
+	"runtime"
 
 	"github.com/gen2brain/malgo"
-	"github.com/hraban/opus"
 )
 
 type MalgoCapture struct {
-	RawPcmChan chan []byte // пока временно конвертация в этом же пакете
-	ctx        *malgo.AllocatedContext
-	device     *malgo.Device
-	Paused     bool
+	PcmChan chan []int16 // пока временно конвертация в этом же пакете
+	ctx     *malgo.AllocatedContext
+	device  *malgo.Device
+	Paused  bool
 }
 
-func NewMalgoCapture(rawPcmChan chan []byte) (*MalgoCapture, error) {
+func NewMalgoCapture(audiocfg config.AudioConfig) (*MalgoCapture, error) {
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(msg string) {
 		log.Println("Malgo context message", msg)
 	})
@@ -25,62 +25,46 @@ func NewMalgoCapture(rawPcmChan chan []byte) (*MalgoCapture, error) {
 		fmt.Println("context error:", err)
 		os.Exit(1)
 	}
-	defer func() {
-		_ = ctx.Uninit()
-		ctx.Free()
-	}()
-
-	// Opus encoder
-	enc, err := opus.NewEncoder(config.SampleRate, config.Channels, opus.AppAudio)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Opus encoder: %w", err)
-	}
 
 	mc := &MalgoCapture{
-		RawPcmChan: rawPcmChan,
-		Paused:     true,
-		ctx:        ctx,
+		PcmChan: make(chan []int16, audiocfg.BufferSize),
+		Paused:  true,
+		ctx:     ctx,
 	}
 
 	capCfg := malgo.DefaultDeviceConfig(malgo.Capture)
 	capCfg.Capture.Format = malgo.FormatS16
-	capCfg.Capture.Channels = config.Channels
-	capCfg.SampleRate = config.SampleRate
-	capCfg.Alsa.NoMMap = 1
+	capCfg.Capture.Channels = audiocfg.Channels
+	capCfg.SampleRate = audiocfg.SampleRate
 
-	bufferSize := config.FramesPerBuffer * config.Channels
+	// alsa specific settings for linux
+	if runtime.GOOS == "linux" {
+		capCfg.Alsa.NoMMap = 1
+	}
+
+	bufferSize := int(audiocfg.FramesPerBuffer * audiocfg.Channels)
 	buffer := make([]int16, 0, bufferSize)
-
+	//encodPCMU := encoder.PCMUEncoder{}
 	onCapture := func(_, pInputSamples []byte, frameCount uint32) {
 		if mc.Paused {
 			return
 		}
-		// конвертировать []byte в []int16
-		sampleCount := int(frameCount) * config.Channels
+		// convert []byte в []int16
+		sampleCount := int(frameCount * audiocfg.Channels)
 		int16Samples := make([]int16, sampleCount)
 		for i := range sampleCount {
 			int16Samples[i] = int16(pInputSamples[i*2]) | int16(pInputSamples[i*2+1])<<8
 		}
 
-		// копировать в буфер
+		// copy to buffer
 		buffer = append(buffer, int16Samples...)
 
 		for len(buffer) >= bufferSize {
 			frame := buffer[:bufferSize]
 			buffer = buffer[bufferSize:]
 
-			// кодировать в opus (временное решение)
-			opusData := make([]byte, 4000) // max opus packet size
-			n, err := enc.Encode(frame, opusData)
-			if err != nil {
-				log.Println("Opus encode error:", err)
-				continue
-			}
-			packet := make([]byte, n)
-			copy(packet, opusData[:n])
-
 			select {
-			case mc.RawPcmChan <- packet:
+			case mc.PcmChan <- frame:
 			default:
 				// drop packets if channel is full
 				//log.Println("Capture channel full, dropping packet")
