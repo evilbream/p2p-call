@@ -5,13 +5,14 @@ import (
 	"log"
 	"os"
 	"p2p-call/internal/audio/config"
+	"p2p-call/internal/audio/encoder"
 	"runtime"
 
 	"github.com/gen2brain/malgo"
 )
 
 type MalgoCapture struct {
-	PcmChan chan []int16 // пока временно конвертация в этом же пакете
+	PcmChan chan []byte // пока временно конвертация в этом же пакете
 	ctx     *malgo.AllocatedContext
 	device  *malgo.Device
 	Paused  bool
@@ -27,7 +28,7 @@ func NewMalgoCapture(audiocfg config.AudioConfig) (*MalgoCapture, error) {
 	}
 
 	mc := &MalgoCapture{
-		PcmChan: make(chan []int16, audiocfg.BufferSize),
+		PcmChan: make(chan []byte, audiocfg.BufferSize),
 		Paused:  true,
 		ctx:     ctx,
 	}
@@ -41,35 +42,60 @@ func NewMalgoCapture(audiocfg config.AudioConfig) (*MalgoCapture, error) {
 	if runtime.GOOS == "linux" {
 		capCfg.Alsa.NoMMap = 1
 	}
+	var capturedPCM []int16
 
-	bufferSize := int(audiocfg.FramesPerBuffer * audiocfg.Channels)
-	buffer := make([]int16, 0, bufferSize)
+	enc, err := encoder.New(audiocfg.SampleRate, audiocfg.Channels)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//bufferSize := int(audiocfg.FramesPerBuffer * audiocfg.Channels)
+	//buffer := make([]int16, 0, bufferSize)
 	//encodPCMU := encoder.PCMUEncoder{}
-	onCapture := func(_, pInputSamples []byte, frameCount uint32) {
+	//sizeInBytes := uint32(malgo.SampleSizeInBytes(capCfg.Capture.Format))
+	frameSamples := audiocfg.FrameSamles
+	onCapture := func(_, input []byte, frameCount uint32) {
 		if mc.Paused {
 			return
 		}
-		// convert []byte в []int16
-		sampleCount := int(frameCount * audiocfg.Channels)
-		int16Samples := make([]int16, sampleCount)
-		for i := range sampleCount {
-			int16Samples[i] = int16(pInputSamples[i*2]) | int16(pInputSamples[i*2+1])<<8
+		samples := make([]int16, int(frameCount*capCfg.Capture.Channels))
+		for i := 0; i < len(samples); i++ {
+			off := i * 2
+			samples[i] = int16(input[off]) | int16(input[off+1])<<8
 		}
+		capturedPCM = append(capturedPCM, samples...)
 
-		// copy to buffer
-		buffer = append(buffer, int16Samples...)
+		for len(capturedPCM) >= frameSamples {
+			int16Sample := capturedPCM[:frameSamples]
+			capturedPCM = capturedPCM[frameSamples:]
 
-		for len(buffer) >= bufferSize {
-			frame := buffer[:bufferSize]
-			buffer = buffer[bufferSize:]
-
+			pkt, err := enc.Encode(int16Sample)
+			if err != nil {
+				log.Printf("encode err: %v", err)
+				continue
+			}
 			select {
-			case mc.PcmChan <- frame:
+			case mc.PcmChan <- pkt:
 			default:
 				// drop packets if channel is full
 				//log.Println("Capture channel full, dropping packet")
 			}
 		}
+
+		// copy to buffer
+		//buffer = append(buffer, int16Samples...)
+
+		//for len(buffer) >= bufferSize {
+		//	frame := buffer[:bufferSize]
+		//	buffer = buffer[bufferSize:]
+
+		//select {
+		//case mc.PcmChan <- int16Samples:
+		//default:
+		// drop packets if channel is full
+		//log.Println("Capture channel full, dropping packet")
+		//}
+		//}
 	}
 
 	device, err := malgo.InitDevice(ctx.Context, capCfg, malgo.DeviceCallbacks{Data: onCapture})

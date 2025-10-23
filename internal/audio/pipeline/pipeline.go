@@ -9,7 +9,6 @@ import (
 	"p2p-call/internal/audio/decoder"
 	"p2p-call/internal/audio/encoder"
 	"p2p-call/internal/audio/playback"
-	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -60,12 +59,6 @@ type AudioPipeline struct {
 
 	QuitSend chan struct{}
 	QuitRecv chan struct{}
-
-	//jitterBuffer
-	jitterBuffer      [][]int16
-	jitterBufferMutex sync.Mutex
-	minBufferSize     int
-	maxBufferSize     int
 }
 
 // создает новый аудио пайплайн с заданными параметрами, еще не стартовавший
@@ -89,15 +82,12 @@ func NewAudioPipeline(audiocfg config.AudioConfig) (*AudioPipeline, error) {
 	}
 
 	ap := &AudioPipeline{
-		Capture:       capture,
-		Playback:      playback,
-		encoder:       encoder,
-		decoder:       decoder,
-		QuitSend:      make(chan struct{}),
-		QuitRecv:      make(chan struct{}),
-		jitterBuffer:  make([][]int16, config.JitterBufferSize),
-		minBufferSize: config.JitterBufferSize,
-		maxBufferSize: config.JitterBufferSize * 3,
+		Capture:  capture,
+		Playback: playback,
+		encoder:  encoder,
+		decoder:  decoder,
+		QuitSend: make(chan struct{}),
+		QuitRecv: make(chan struct{}),
 	}
 	return ap, nil
 }
@@ -112,17 +102,9 @@ func (p *AudioPipeline) StartSending(track *webrtc.TrackLocalStaticSample) {
 		select {
 		case <-p.QuitSend:
 			return
-		case pcm, ok := <-p.Capture.PcmChan:
+		case encoded, ok := <-p.Capture.PcmChan:
 			if !ok {
 				return
-			}
-			encoded, err := p.Encode(pcm)
-			if err != nil {
-				log.Println(err)
-				if errors.Is(err, ErrEncoderNil) {
-					return
-				}
-				continue
 			}
 			if err := track.WriteSample(media.Sample{Data: encoded, Duration: duration}); err != nil {
 				log.Printf("Error writing audio sample: %v", err)
@@ -132,18 +114,6 @@ func (p *AudioPipeline) StartSending(track *webrtc.TrackLocalStaticSample) {
 		}
 	}
 
-}
-
-func (p *AudioPipeline) Encode(pcm []int16) ([]byte, error) {
-	if p.encoder == nil {
-		log.Println("Encoder cant be nil")
-		return nil, ErrEncoderNil
-	}
-	encoded, err := p.encoder.Encode(pcm)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode pcm: %v", err)
-	}
-	return encoded, nil
 }
 
 // StartReceiving starts the audio receiving, decoding, and playback process.
@@ -156,8 +126,6 @@ func (p *AudioPipeline) StartReceiving(track *webrtc.TrackRemote) {
 	streamID := track.StreamID()
 
 	log.Printf("Track info: Kind=%s, ID=%s, StreamID=%s", trackKind, trackID, streamID)
-	// run jitter buffer manager
-	go p.manageJitterBuffer()
 	for {
 		select {
 		case <-p.QuitRecv:
@@ -168,16 +136,12 @@ func (p *AudioPipeline) StartReceiving(track *webrtc.TrackRemote) {
 				log.Printf("Error reading RTP: %v", err)
 				return
 			}
-			decoded, err := p.Decode(rtp.Payload)
-			if err != nil {
-				log.Println(err)
-				if errors.Is(err, ErrDecoderNil) {
-					return
-				}
-				continue
+			select {
+			case p.Playback.InChan <- rtp.Payload:
+			default:
+				log.Println("RTP channel full, dropping packet")
 			}
 
-			p.addToJitterBuffer(decoded)
 		}
 	}
 
@@ -192,59 +156,6 @@ func (p *AudioPipeline) Decode(data []byte) ([]int16, error) {
 		return nil, fmt.Errorf("failed to decode data: %v", err)
 	}
 	return decoded, nil
-}
-
-// addToJitterBuffer adds a frame to the jitter buffer with overflow protection
-func (p *AudioPipeline) addToJitterBuffer(frame []int16) {
-	p.jitterBufferMutex.Lock()
-	defer p.jitterBufferMutex.Unlock()
-
-	// add one frame to buffer
-	p.jitterBuffer = append(p.jitterBuffer, frame)
-
-	if len(p.jitterBuffer) > p.maxBufferSize {
-		log.Printf("Jitter buffer overflow: %d frames, dropping old frames", len(p.jitterBuffer))
-		// remove old frames
-		excess := len(p.jitterBuffer) - p.maxBufferSize
-		p.jitterBuffer = p.jitterBuffer[excess:]
-	}
-}
-
-// sends frames from jitter buffer to playback at regular intervals
-func (p *AudioPipeline) manageJitterBuffer() {
-	ticker := time.NewTicker(20 * time.Millisecond) // 20ms - standard frame duration
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-p.QuitRecv:
-			return
-		case <-ticker.C:
-			p.jitterBufferMutex.Lock()
-
-			bufferLen := len(p.jitterBuffer)
-
-			// wait minimal buffer size
-			if bufferLen < p.minBufferSize {
-				p.jitterBufferMutex.Unlock()
-				continue
-			}
-
-			// get one frame from buffer
-			frame := p.jitterBuffer[0]
-			p.jitterBuffer = p.jitterBuffer[1:]
-
-			p.jitterBufferMutex.Unlock()
-
-			// send to playback
-			select {
-			case p.Playback.InChan <- frame:
-			default:
-				log.Println("Playback channel full, dropping frame")
-			}
-
-		}
-	}
 }
 
 func (p *AudioPipeline) Close() {

@@ -22,7 +22,7 @@ func NewOpusDecoder(sampleRate, channels int) (*OpusDecoder, error) {
 		dec:        dec,
 		sampleRate: sampleRate,
 		channels:   channels,
-		frameSize:  config.FramesPerBufferOpus * channels,
+		frameSize:  config.FrameSamplesOpus * channels,
 	}, nil
 }
 
