@@ -2,7 +2,7 @@ package rtc
 
 import (
 	"bufio"
-	"encoding/json"
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -40,7 +40,7 @@ func NewConnection(pipeline *pipeline.AudioPipeline, codec string) *Connection {
 }
 
 // returns connection result error, nil if success
-func (con Connection) Connect(attempt int) error {
+func (con Connection) Connect(ctx context.Context, attempt int) error {
 	// create nat config
 	log.Println("Trying connection with config attempt ", attempt)
 	config := createConfigForNATType(attempt)
@@ -91,6 +91,11 @@ func (con Connection) Connect(attempt int) error {
 	sessionID := system.GenerateSessionID()
 	fmt.Printf("Session ID: %s\n", sessionID)
 
+	signal, err := NewSignal(ctx, sessionID, peerConnection)
+	if err != nil {
+		return fmt.Errorf("failed to create signal: %v", err)
+	}
+
 	con.setupEventHandlers(peerConnection)
 
 	fmt.Println("What to do?:")
@@ -106,9 +111,9 @@ func (con Connection) Connect(attempt int) error {
 
 	switch choice {
 	case "1":
-		createAndSendOffer(peerConnection, sessionID)
+		signal.createAndSendOffer()
 	case "2":
-		receiveAndProcessOffer(peerConnection, sessionID)
+		signal.receiveAndProcessOffer()
 	default:
 		log.Fatal("Invalid choice")
 	}
@@ -280,112 +285,4 @@ func setupAudioTrack(pc *webrtc.PeerConnection, codecType string) (*webrtc.Track
 
 	log.Printf("Audio track added: %s", rtpSender.Track().ID())
 	return audioTrack, nil
-}
-
-func createAndSendOffer(pc *webrtc.PeerConnection, sessionID string) {
-	offer, err := pc.CreateOffer(nil)
-	if err != nil {
-		log.Fatalf("Failed to create offer: %v", err)
-	}
-
-	err = pc.SetLocalDescription(offer)
-	if err != nil {
-		log.Printf("Failed to set local description: %v", err)
-	}
-
-	waitForICEGathering(pc)
-
-	finalOffer := pc.LocalDescription()
-	signalData := SignalData{
-		Type:      "offer",
-		SDP:       finalOffer,
-		SessionID: sessionID,
-	}
-
-	offerJSON, err := json.Marshal(signalData)
-	if err != nil {
-		log.Fatalf("Failed to marshal offer: %v", err)
-	}
-	fmt.Println("\nCopy offer and send it:")
-	fmt.Println(string(offerJSON))
-	fmt.Println("\nEnter accept:")
-
-	receiveAnswer(pc)
-}
-
-func receiveAndProcessOffer(pc *webrtc.PeerConnection, sessionID string) {
-	fmt.Println("Enter offer:")
-
-	offer := system.ReadMultilineJSON()
-
-	var signalData SignalData
-	err := json.Unmarshal([]byte(offer), &signalData)
-	if err != nil {
-		log.Fatalf("Failed to parse offer: %v", err)
-	}
-
-	err = pc.SetRemoteDescription(*signalData.SDP)
-	if err != nil {
-		log.Fatalf("Failed to set remote description: %v", err)
-	}
-
-	answer, err := pc.CreateAnswer(nil)
-	if err != nil {
-		log.Fatalf("Failed to create answer: %v", err)
-	}
-
-	err = pc.SetLocalDescription(answer)
-	if err != nil {
-		log.Fatalf("Failed to set local description: %v", err)
-	}
-
-	fmt.Println("Fetching ICE candidates...")
-	waitForICEGathering(pc)
-
-	finalAnswer := pc.LocalDescription()
-	answerData := SignalData{
-		Type:      "answer",
-		SDP:       finalAnswer,
-		SessionID: sessionID,
-	}
-
-	answerJSON, err := json.Marshal(answerData)
-	if err != nil {
-		log.Fatalf("Failed to marshal answer: %v", err)
-	}
-	fmt.Println("\nAnswer to send:")
-	fmt.Println(string(answerJSON))
-}
-
-func receiveAnswer(pc *webrtc.PeerConnection) {
-	answer := system.ReadMultilineJSON()
-
-	var signalData SignalData
-	err := json.Unmarshal([]byte(answer), &signalData)
-	if err != nil {
-		log.Fatalf("Failed to parse answer: %v", err)
-	}
-
-	err = pc.SetRemoteDescription(*signalData.SDP)
-	if err != nil {
-		log.Fatalf("Failed to set remote description: %v", err)
-	}
-}
-
-func waitForICEGathering(pc *webrtc.PeerConnection) {
-	done := make(chan struct{})
-
-	pc.OnICEGatheringStateChange(func(state webrtc.ICEGatheringState) {
-		fmt.Printf("ICE Gathering: %s\n", state.String())
-		if state == webrtc.ICEGatheringStateComplete {
-			close(done)
-		}
-	})
-
-	select {
-	case <-done:
-		fmt.Println("ICE candidates gathered")
-	case <-time.After(45 * time.Second):
-		fmt.Println("ICE gathering timeout, proceeding with gathered candidates")
-	}
 }
