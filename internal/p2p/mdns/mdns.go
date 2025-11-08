@@ -50,7 +50,7 @@ func (m *MDNSDiscovery) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	host.SetStreamHandler(protocol.ID(m.Cfg.ProtocolId), m.InStream)
+	host.SetStreamHandler(protocol.ID(m.Cfg.ProtocolId), m.StreamHandler)
 	log.Info().Msgf("mDNS Host ID: %s", host.ID().String())
 
 	peerChan := initMDNS(host, m.Cfg.RendezvousString)

@@ -31,16 +31,12 @@ func main() {
 	defer pipeline.Close()
 
 	webRtcCon := rtc.NewConnection(pipeline)
+	go webRtcCon.LogConnectionErrors(webRtcCon.ConStatusChannel)
 	// init peer connection
-	go webRtcCon.Connect(ctx)
-
-	// wait for connection to be established or failed
-	if err := <-webRtcCon.ConStatusChannel; err != nil {
-		log.Error().Msgf("failed to start webrtc connection: %v", err)
+	if err := webRtcCon.Connect(ctx); err != nil {
+		log.Error().Msgf("Failed to start webrtc connection: %v", err)
 		system.WaitForUserResponse(true)
 	}
-
-	go webRtcCon.ReadConnectionLog(webRtcCon.ConStatusChannel)
 
 	desktopIface, err := desktop.NewDesktopInterface(pipeline.Capture, pipeline.Playback)
 	if err != nil {

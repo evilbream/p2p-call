@@ -30,7 +30,7 @@ func (d *DhtDiscover) Start(ctx context.Context) error {
 		Msg("Host created.")
 
 	// set function that will be called when a peer initiates a connection and starts a stream with this peer
-	host.SetStreamHandler(protocol.ID(d.Cfg.ProtocolId), d.InStream)
+	host.SetStreamHandler(protocol.ID(d.Cfg.ProtocolId), d.StreamHandler)
 
 	bootstrapPeers := make([]peer.AddrInfo, len(d.Cfg.BootstrapPeers))
 	for i, addr := range d.Cfg.BootstrapPeers {
@@ -57,18 +57,21 @@ func (d *DhtDiscover) Start(ctx context.Context) error {
 
 	log.Debug().Msg("Searching for other peers...")
 
+	logTicker := time.NewTicker(30 * time.Second)
+	defer logTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
+			log.Info().Msg("DHT discovery context done, exiting")
 			return ctx.Err()
+		case <-logTicker.C:
+			log.Debug().Int("rt_size", kademliaDHT.RoutingTable().Size()).Msg("Waiting for peers to connect...")
 		default:
-			log.Info().Int("rt_size", kademliaDHT.RoutingTable().Size()).Msg("Waiting for peers to connect...")
-
 			peerChan, err := routingDiscovery.FindPeers(ctx, d.Cfg.RendezvousString)
 			if err != nil {
 				return err
 			}
-
 			for peer := range peerChan {
 				select {
 				case <-ctx.Done():

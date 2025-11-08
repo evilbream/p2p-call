@@ -1,14 +1,11 @@
 package rtc
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"p2p-call/internal/audio/pipeline"
 	"p2p-call/pkg/config"
 	"p2p-call/pkg/system"
-	"strings"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -18,13 +15,6 @@ import (
 type Connection struct {
 	Pipeline         *pipeline.AudioPipeline
 	ConStatusChannel chan error
-}
-
-type SignalData struct {
-	Type      string                     `json:"type"`
-	SDP       *webrtc.SessionDescription `json:"sdp,omitempty"`
-	Candidate *webrtc.ICECandidate       `json:"candidate,omitempty"`
-	SessionID string                     `json:"session_id"`
 }
 
 func NewConnection(pipeline *pipeline.AudioPipeline) *Connection {
@@ -51,7 +41,7 @@ func createConfig() webrtc.Configuration {
 }
 
 // reads connection log and process errors
-func (con Connection) ReadConnectionLog(connErrors chan error) {
+func (con Connection) LogConnectionErrors(connErrors chan error) {
 	for {
 		err := <-connErrors
 		if err != nil {
@@ -104,7 +94,7 @@ func (con Connection) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %v", err)
 	}
-	defer peerConnection.Close()
+	//defer peerConnection.Close()
 
 	audioTrack, err := setupAudioTrack(peerConnection)
 	if err != nil {
@@ -114,46 +104,16 @@ func (con Connection) Connect(ctx context.Context) error {
 	sessionID := system.GenerateSessionID()
 	fmt.Printf("Session ID: %s\n", sessionID)
 
-	signal, err := NewSignal(ctx, sessionID, peerConnection)
-	if err != nil {
-		return fmt.Errorf("failed to create signal: %v", err)
-	}
-
 	// create event handler
 	eventHandler := EventHandlers{
 		statusChannel: con.ConStatusChannel,
 		pipeline:      con.Pipeline,
 	}
 	eventHandler.setupEventHandlers(peerConnection)
-
-	fmt.Println("─────────────────────────────")
-	fmt.Println(" What would you like to do?")
-	fmt.Println("─────────────────────────────")
-	fmt.Println(" 1. Send an offer")
-	fmt.Println(" 2. Accept an offer")
-	fmt.Println(" 3. Exit")
-	fmt.Print(" Please enter 1, 2, or 3: ")
-
 	go con.Pipeline.StartSending(audioTrack)
-
-	for {
-		reader := bufio.NewReader(os.Stdin)
-		choice, _ := reader.ReadString('\n')
-		choice = strings.TrimSpace(choice)
-		switch choice {
-		case "1":
-			signal.createAndSendOffer()
-			return nil
-		case "2":
-			signal.receiveAndProcessOffer()
-			return nil
-		case "3":
-			fmt.Println("Exiting...")
-			return nil
-		default:
-			fmt.Printf("Invalid choice: %s, choose 1 or 2\n", choice)
-		}
+	signal := NewSignal(sessionID, peerConnection)
+	if err := signal.StartWebrtcCon(ctx); err != nil {
+		return err
 	}
-
-	select {} // keep connection alive
+	return nil
 }

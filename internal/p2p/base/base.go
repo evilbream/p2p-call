@@ -51,27 +51,35 @@ type StreamHandler func(stream network.Stream)
 
 // Discover
 type Discover struct {
-	Cfg       *DiscoverConfig
-	OutStream func(stream network.Stream)
-	InStream  func(stream network.Stream)
+	Cfg           *DiscoverConfig
+	StreamHandler func(stream network.Stream)
 }
 
-func NewDiscoverWithDefaultCfg(outStream, inStream StreamHandler) (*Discover, error) {
-	if outStream == nil || inStream == nil {
-		return nil, fmt.Errorf("stream handlers cannot be nil")
+func NewDiscoverWithDefaultCfg(streamHandler StreamHandler) (*Discover, error) {
+	if streamHandler == nil {
+		return nil, fmt.Errorf("stream handler cannot be nil")
 	}
 	cfg := NewDefaultDiscoverConfig()
-	return &Discover{Cfg: cfg, OutStream: outStream, InStream: inStream}, nil
+	return &Discover{Cfg: cfg, StreamHandler: streamHandler}, nil
 }
 
 // processOnePeer tries to connect to one peer found via mDNS
 func (d *Discover) ProcessOnePeer(ctx context.Context, host host.Host, peer peer.AddrInfo) (shouldExit bool) {
 
-	if peer.ID == host.ID() { // make one channel per peer only by peer.ID >= host.ID()
+	if peer.ID == host.ID() { // make one channel per peer only by peer.ID >= host.ID(). использовать двойной выход только если обоим пирам обязательно открывать отдельный канал
 		return shouldExit
 	}
 
-	log.Debug().Str("peer", peer.String()).Msg("found peer via mDNS")
+	if peer.ID > host.ID() {
+		log.Info().Str("peer", peer.String()).Msg("Peer ID greater than host ID, waiting for incoming connection")
+		return shouldExit // wait for the other peer to connect
+	}
+
+	if host.Network().Connectedness(peer.ID) == network.Connected {
+		log.Info().Str("peer", peer.String()).Msg("Already connected")
+		return true // already connected
+	}
+
 	if err := host.Connect(ctx, peer); err != nil {
 		log.Warn().Str("peer", peer.String()).Err(err).Msg("Connection failed")
 		return shouldExit
@@ -82,7 +90,7 @@ func (d *Discover) ProcessOnePeer(ctx context.Context, host host.Host, peer peer
 		log.Warn().Str("peer", peer.String()).Err(err).Msg("Connection failed")
 		return shouldExit
 	} else {
-		go d.OutStream(stream) // process outgoing stream
+		go d.StreamHandler(stream) // process outgoing stream
 	}
 
 	log.Info().Str("peer", peer.String()).Msg("Connected to peer")

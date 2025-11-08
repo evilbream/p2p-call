@@ -2,209 +2,223 @@ package rtc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"p2p-call/internal/p2p/discovery"
-	"strings"
+	"p2p-call/internal/p2p/signaling"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/pion/webrtc/v4"
 	"github.com/rs/zerolog/log"
 )
 
 type Signal struct {
-	SessionID    string
-	incomingChan chan string
-	outgoingChan chan string
-	established  chan struct{}
+	SessionId    string
+	handshake    *signaling.HandshakeManager
+	incomingChan chan Message // duplex channel
+	outgoingChan chan Message // duplex channel
 	pc           *webrtc.PeerConnection
+	answerChan   chan Message
+	offerChan    chan Message
+	peerID       peer.ID // добавить
+	hostID       peer.ID // добавить
 }
 
-func NewSignal(ctx context.Context, sessionID string, pc *webrtc.PeerConnection) (*Signal, error) {
-	// run discovery
-	s := Signal{
-		SessionID:    sessionID,
+func NewSignal(sessionID string, pc *webrtc.PeerConnection) *Signal {
+	return &Signal{
+		SessionId:    sessionID,
 		pc:           pc,
-		incomingChan: make(chan string),
-		outgoingChan: make(chan string),
-		established:  make(chan struct{}, 2),
+		incomingChan: make(chan Message),
+		outgoingChan: make(chan Message),
+		answerChan:   make(chan Message),
+		offerChan:    make(chan Message),
+		handshake:    signaling.NewHandshake(),
 	}
-
-	dscvr, err := discovery.NewDiscover(s.handleOutgoingStream, s.handleIncomingStream)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create discovery: %v", err)
-	}
-
-	// по хорошему тут надо изменить логику чтобы могло подлючиться несколько пиров,  но мы ждем любого первого и выходим
-	if err := dscvr.StartDiscovery(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start discovery: %v", err)
-	}
-	i := 0
-	for range s.established {
-		i++
-		if i >= 2 {
-			log.Info().Msg("Signaling channels established")
-			return &s, nil
-		}
-	}
-	return nil, fmt.Errorf("failed to establish signaling channels")
 }
 
 func (s *Signal) HandleRead(rw *bufio.ReadWriter) {
 	for {
-		str, err := rw.ReadString('\n')
-		if err != nil {
-			log.Error().Err(err).Msg("Error reading from stream")
+
+		// read length prefix
+		var length uint32
+		if err := binary.Read(rw, binary.BigEndian, &length); err != nil {
+			log.Error().Err(err).Msg("Error reading message length from stream")
 			return
 		}
-		if str == "" {
+
+		payload := make([]byte, length)
+		if _, err := io.ReadFull(rw, payload); err != nil {
+			log.Error().Err(err).Msg("Error reading message payload from stream")
+			return
+		}
+
+		log.Printf("<< Raw data: %s", string(payload))
+		var message Message
+		if err := json.Unmarshal(bytes.TrimSpace(payload), &message); err != nil {
+			log.Error().Err(err).Msg("Error unmarshaling message")
+			s.incomingChan <- Message{Type: ErrorMsg, SessionID: s.SessionId}
 			continue
 		}
 
-		log.Info().Str("data", str).Msg("Received data")
-		if strings.Contains(str, "established") { // first data
-			s.established <- struct{}{}
-			continue
+		switch message.Type {
+		case Handshake:
+			log.Info().Msg("Received handshake message")
+			ackMsg := Message{Type: Ack, SessionID: s.SessionId}
+			s.outgoingChan <- ackMsg
+		case Ack:
+			log.Info().Msg("Received ack message")
+			s.handshake.MarkReady()
+		case Offer:
+			log.Info().Msg("Received offer message")
+			s.offerChan <- message
+		case Answer:
+			log.Info().Msg("Received answer message")
+			s.answerChan <- message
+		default:
+			s.incomingChan <- message
+
 		}
-		s.incomingChan <- str
 	}
 }
 
 func (s *Signal) HandleWrite(rw *bufio.ReadWriter) {
 	for sendData := range s.outgoingChan {
 
-		_, err := fmt.Fprintf(rw, "%s\n", sendData)
+		data := sendData.ToBytes()
+		if data == nil {
+			continue
+		}
+
+		length := uint32(len(data))
+		if err := binary.Write(rw, binary.BigEndian, length); err != nil {
+			log.Fatal().Err(err).Msg("Fatal error writing message length to stream")
+		}
+
+		_, err := rw.Write(data)
 		if err != nil {
-			log.Error().Err(err).Msg("Error writing to stream")
-			panic(err)
+			log.Fatal().Err(err).Msg("Fatal error writing to stream")
 		}
 
 		err = rw.Flush()
 		if err != nil {
-			fmt.Println("Error flushing buffer")
-			panic(err)
+			log.Fatal().Err(err).Msg("Error flushing buffer")
 		}
 
-		if sendData == "established" {
-			s.established <- struct{}{}
-		}
 	}
 }
 
-//return &s, nil
-
-func (s *Signal) handleIncomingStream(stream network.Stream) {
-	log.Info().Str("peer", stream.Conn().RemotePeer().String()).Msg("New incoming stream opened")
-	// Create a buffer stream for non-blocking read and write.
+func (s *Signal) handleStream(stream network.Stream) {
+	log.Info().Str("peer", stream.Conn().RemotePeer().String()).Msg("New stream opened")
 	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
+
+	s.peerID = stream.Conn().RemotePeer()
+	s.hostID = stream.Conn().LocalPeer()
 
 	go s.HandleRead(rw)
 	go s.HandleWrite(rw)
-}
 
-func (s *Signal) handleOutgoingStream(stream network.Stream) {
-	log.Info().Str("peer", stream.Conn().RemotePeer().String()).Msg("New outgoing stream opened")
-	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
-
-	go s.HandleRead(rw)
-	go s.HandleWrite(rw)
-	s.outgoingChan <- "established"
+	handshakeMsg := Message{Type: Handshake, SessionID: s.SessionId}
+	s.outgoingChan <- handshakeMsg
+	log.Debug().Msg("Send handshake message")
 
 }
 
-func (s *Signal) createAndSendOffer() {
+func (s *Signal) StartWebrtcCon(ctx context.Context) error {
+
+	dscvr, err := discovery.NewDiscover(s.handleStream)
+
+	if err != nil {
+		return fmt.Errorf("failed to create discovery: %v", err)
+	}
+
+	// по хорошему тут надо изменить логику чтобы могло подлючиться несколько пиров,  но мы ждем любого первого и выходим
+	if err := dscvr.StartDiscovery(ctx, s.handshake.Ready); err != nil {
+		return fmt.Errorf("failed to start discovery: %v", err)
+	}
+	s.handshake.Wait()
+	log.Info().Msg("Handshake completed")
+	return s.negotiateWebRTC()
+}
+
+func (s *Signal) negotiateWebRTC() error {
+	// Определяем роль по peer ID (меньший ID = offerer)
+	if s.hostID < s.peerID {
+		log.Info().Msg("Acting as offerer (my ID is smaller)")
+		return s.createAndSendOffer()
+	} else {
+		log.Info().Msg("Acting as answerer (my ID is larger)")
+		return s.receiveAndProcessOffer()
+	}
+}
+
+func (s *Signal) createAndSendOffer() error {
 	offer, err := s.pc.CreateOffer(nil)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create offer")
-		return
+		return fmt.Errorf("failed to create offer: %w", err)
 	}
 
 	err = s.pc.SetLocalDescription(offer)
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to set local description, retrying...")
+		return fmt.Errorf("failed to set local description: %w", err)
 	}
 
 	s.waitForICEGathering()
 
 	finalOffer := s.pc.LocalDescription()
-	signalData := SignalData{
+	signalData := Message{
 		Type:      "offer",
 		SDP:       finalOffer,
-		SessionID: s.SessionID,
-	}
-
-	offerJSON, err := json.Marshal(signalData)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to marshal offer")
-		return
+		SessionID: s.SessionId,
 	}
 
 	//send offer via stream
-	s.outgoingChan <- string(offerJSON)
-
-	s.receiveAnswer()
+	s.outgoingChan <- signalData
+	// wait for an answer
+	message := <-s.answerChan
+	s.receiveAnswer(message)
+	return nil
 }
 
-func (s *Signal) receiveAndProcessOffer() {
-
-	for offer := range s.incomingChan {
-
-		var signalData SignalData
-		err := json.Unmarshal([]byte(offer), &signalData)
-		if err != nil {
-			log.Fatal().Msgf("Failed to parse offer: %v", err)
-		}
-
-		err = s.pc.SetRemoteDescription(*signalData.SDP)
-		if err != nil {
-			log.Fatal().Msgf("Failed to set remote description: %v", err)
-		}
-
-		answer, err := s.pc.CreateAnswer(nil)
-		if err != nil {
-			log.Fatal().Msgf("Failed to create answer: %v", err)
-		}
-
-		err = s.pc.SetLocalDescription(answer)
-		if err != nil {
-			log.Fatal().Msgf("Failed to set local description: %v", err)
-		}
-
-		fmt.Println("Fetching ICE candidates...")
-		s.waitForICEGathering()
-
-		finalAnswer := s.pc.LocalDescription()
-		answerData := SignalData{
-			Type:      "answer",
-			SDP:       finalAnswer,
-			SessionID: s.SessionID,
-		}
-
-		answerJSON, err := json.Marshal(answerData)
-		if err != nil {
-			log.Fatal().Msgf("Failed to marshal answer: %v", err)
-		}
-		//send answer via stream
-		s.outgoingChan <- string(answerJSON)
+func (s *Signal) receiveAndProcessOffer() error {
+	offer := <-s.offerChan
+	if err := s.pc.SetRemoteDescription(*offer.SDP); err != nil {
+		return fmt.Errorf("failed to set remote description: %w", err)
 	}
+
+	answer, err := s.pc.CreateAnswer(nil)
+	if err != nil {
+		return fmt.Errorf("failed to create answer: %w", err)
+	}
+
+	err = s.pc.SetLocalDescription(answer)
+	if err != nil {
+		return fmt.Errorf("failed to set local description: %w", err)
+	}
+
+	fmt.Println("Fetching ICE candidates...")
+	s.waitForICEGathering()
+
+	finalAnswer := s.pc.LocalDescription()
+	answerData := Message{
+		Type:      "answer",
+		SDP:       finalAnswer,
+		SessionID: s.SessionId,
+	}
+	//send answer via stream
+	s.outgoingChan <- answerData
+	return nil
 }
 
-func (s *Signal) receiveAnswer() {
-	for answer := range s.incomingChan {
-
-		var signalData SignalData
-		err := json.Unmarshal([]byte(answer), &signalData)
-		if err != nil {
-			log.Fatal().Msgf("Failed to parse answer: %v", err)
-		}
-
-		err = s.pc.SetRemoteDescription(*signalData.SDP)
-		if err != nil {
-			log.Fatal().Msgf("Failed to set remote description: %v", err)
-		}
+func (s *Signal) receiveAnswer(answer Message) {
+	err := s.pc.SetRemoteDescription(*answer.SDP)
+	if err != nil {
+		log.Fatal().Msgf("Failed to set remote description: %v", err)
 	}
 }
 
