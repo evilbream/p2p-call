@@ -1,0 +1,133 @@
+name: Build macOS Binaries
+
+on:
+  push:
+    branches: [ main, release]
+  pull_request:
+    branches: [ main, release ]
+  workflow_dispatch:
+
+jobs:
+  build-macos-pcmu:
+    name: macOS Apple Silicon (PCMU)
+    runs-on: macos-14
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+          
+      - name: Install dependencies
+        run: go mod tidy
+        
+      - name: Build main app (PCMU)
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          go build -ldflags "-s -w" -o p2p-call-pcmu-mac-arm64 ./cmd
+          
+        
+      - name: Verify binaries
+        run: |
+          file p2p-call-pcmu-mac-arm64
+          ls -lh p2p-call-pcmu-mac-arm64
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-pcmu
+          path: |
+            p2p-call-pcmu-mac-arm64
+          retention-days: 30
+
+  build-macos-opus:
+    name: macOS Apple Silicon (Opus)
+    runs-on: macos-14
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+          
+      - name: Install dependencies
+        run: go mod tidy
+        
+      - name: Build with Opus
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          go build -tags opus -ldflags "-s -w" -o p2p-call-opus-mac-arm64 ./cmd
+        
+      - name: Verify binary
+        run: |
+          file p2p-call-opus-mac-arm64
+          ls -lh p2p-call-opus-mac-arm64
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-opus
+          path: p2p-call-opus-mac-arm64
+          retention-days: 30
+
+  build-macos-universal:
+    name: macOS Universal Binary (arm64 + amd64)
+    runs-on: macos-14
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+          
+      - name: Install dependencies
+        run: go mod tidy
+        
+      - name: Build arm64 (PCMU)
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: arm64
+        run: |
+          mkdir -p build
+          go build -ldflags "-s -w" -o build/p2p-call-arm64 ./cmd
+        
+      - name: Build amd64 (PCMU)
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: amd64
+        run: |
+          go build -ldflags "-s -w" -o build/p2p-call-amd64 ./cmd
+        
+      - name: Create universal binary
+        run: |
+          lipo -create -output p2p-call-universal build/p2p-call-arm64 build/p2p-call-amd64
+          file p2p-call-universal
+          lipo -info p2p-call-universal
+          ls -lh p2p-call-universal
+          
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-pcmu
+          path: p2p-call-universal
+          retention-days: 30
