@@ -35,7 +35,7 @@ func NewMalgoCapture(audiocfg config.AudioConfig) (*MalgoCapture, error) {
 
 	capCfg := malgo.DefaultDeviceConfig(malgo.Capture)
 	capCfg.Capture.Format = malgo.FormatS16
-	capCfg.Capture.Channels = audiocfg.Channels
+	capCfg.Capture.Channels = uint32(audiocfg.Channels)
 	capCfg.SampleRate = audiocfg.SampleRate
 
 	// alsa specific settings for linux
@@ -44,7 +44,7 @@ func NewMalgoCapture(audiocfg config.AudioConfig) (*MalgoCapture, error) {
 	}
 	var capturedPCM []int16
 
-	enc, err := encoder.New(audiocfg.SampleRate, audiocfg.Channels)
+	enc, err := encoder.New(audiocfg.SampleRate, uint32(audiocfg.Channels))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func NewMalgoCapture(audiocfg config.AudioConfig) (*MalgoCapture, error) {
 	//buffer := make([]int16, 0, bufferSize)
 	//encodPCMU := encoder.PCMUEncoder{}
 	//sizeInBytes := uint32(malgo.SampleSizeInBytes(capCfg.Capture.Format))
-	frameSamples := audiocfg.FrameSamles
+	frameSamples := audiocfg.FrameSamples
 	onCapture := func(_, input []byte, frameCount uint32) {
 		if mc.Paused {
 			return

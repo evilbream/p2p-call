@@ -3,6 +3,7 @@ package rtc
 import (
 	"context"
 	"fmt"
+	audiocfg "p2p-call/internal/audio/config"
 	"p2p-call/internal/audio/pipeline"
 	"p2p-call/pkg/config"
 	"p2p-call/pkg/system"
@@ -52,7 +53,7 @@ func (con Connection) LogConnectionErrors(connErrors chan error) {
 }
 
 // returns connection result error, nil if success
-func (con Connection) Connect(ctx context.Context) error {
+func (con Connection) Connect(ctx context.Context, audioCfg *audiocfg.AudioConfig) error {
 	// create nat config
 	config := createConfig()
 
@@ -73,12 +74,12 @@ func (con Connection) Connect(ctx context.Context) error {
 	mediaEngine := &webrtc.MediaEngine{}
 	err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:    webrtc.MimeTypeOpus,
-			ClockRate:   48000,
-			Channels:    1,
-			SDPFmtpLine: "minptime=10;useinbandfec=1;maxaveragebitrate=64000;stereo=0;sprop-stereo=0;cbr=0",
+			MimeType:    audioCfg.MimeType,
+			ClockRate:   audioCfg.SampleRate,
+			Channels:    audioCfg.Channels,
+			SDPFmtpLine: audioCfg.SDPFmtpLine,
 		},
-		PayloadType: 111,
+		PayloadType: webrtc.PayloadType(audioCfg.PayloadType),
 	}, webrtc.RTPCodecTypeAudio)
 
 	if err != nil {
@@ -96,7 +97,7 @@ func (con Connection) Connect(ctx context.Context) error {
 	}
 	//defer peerConnection.Close()
 
-	audioTrack, err := setupAudioTrack(peerConnection)
+	audioTrack, err := setupAudioTrack(peerConnection, audioCfg)
 	if err != nil {
 		return fmt.Errorf("failed to setup audio track: %v", err)
 	}

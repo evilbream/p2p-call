@@ -20,7 +20,8 @@ func main() {
 	logger.InitLogger()
 
 	ctx := context.Background()
-	audioCfg := config.NewOpusConfig()
+	audioCfg := config.NewPCMUConfig()
+	//audioCfg := config.NewOpusConfig() // can be selected any codec
 
 	// connect to audio pipeline
 	pipeline, err := pipeline.NewAudioPipeline(audioCfg)
@@ -33,7 +34,7 @@ func main() {
 	webRtcCon := rtc.NewConnection(pipeline)
 	go webRtcCon.LogConnectionErrors(webRtcCon.ConStatusChannel)
 	// init peer connection
-	if err := webRtcCon.Connect(ctx); err != nil {
+	if err := webRtcCon.Connect(ctx, &audioCfg); err != nil {
 		log.Error().Msgf("Failed to start webrtc connection: %v", err)
 		system.WaitForUserResponse(true)
 	}

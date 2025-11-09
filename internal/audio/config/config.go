@@ -1,6 +1,10 @@
 package config
 
-import "log"
+import (
+	"log"
+
+	"github.com/pion/webrtc/v4"
+)
 
 type AudioConfigType string
 
@@ -25,22 +29,28 @@ const (
 )
 
 type AudioConfig struct {
-	SampleRate  uint32
-	FrameSamles int
-	Channels    uint32
-	BufferSize  int // channel buffer size in frames
-	Type        AudioConfigType
+	SampleRate   uint32
+	FrameSamples int
+	Channels     uint16
+	BufferSize   int // channel buffer size in frames
+	Type         AudioConfigType
+	SDPFmtpLine  string
+	PayloadType  uint8
+	MimeType     string
 }
 
 // NewOpusConfig creates AudioConfig for Opus codec
 func NewOpusConfig() AudioConfig {
 	log.Println("Using Opus config (48kHz, high quality)")
 	return AudioConfig{
-		SampleRate:  SampleRateOpus,
-		FrameSamles: FrameSamplesOpus,
-		Channels:    ChannelsOpus,
-		BufferSize:  300,
-		Type:        AudioCodecOpus,
+		SampleRate:   SampleRateOpus,
+		FrameSamples: FrameSamplesOpus,
+		Channels:     ChannelsOpus,
+		BufferSize:   300,
+		Type:         AudioCodecOpus,
+		SDPFmtpLine:  "minptime=10;useinbandfec=1;maxaveragebitrate=64000;stereo=0;sprop-stereo=0;cbr=0",
+		PayloadType:  111,
+		MimeType:     webrtc.MimeTypeOpus,
 	}
 }
 
@@ -49,10 +59,13 @@ func NewOpusConfig() AudioConfig {
 func NewPCMUConfig() AudioConfig {
 	log.Println("Using PCMU/G.711 config (8kHz, telephone quality)")
 	return AudioConfig{
-		SampleRate:  SampleRatePCM,
-		FrameSamles: FrameSamplesPCM,
-		Channels:    ChannelsPCM,
-		BufferSize:  300,
-		Type:        AudioCodecPCMU,
+		SampleRate:   SampleRatePCM,
+		FrameSamples: FrameSamplesPCM,
+		Channels:     ChannelsPCM,
+		BufferSize:   300,
+		Type:         AudioCodecPCMU,
+		SDPFmtpLine:  "",
+		PayloadType:  0,
+		MimeType:     webrtc.MimeTypePCMU,
 	}
 }

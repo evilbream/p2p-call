@@ -2,32 +2,40 @@ package rtc
 
 import (
 	"fmt"
-	"log"
+	audiocfg "p2p-call/internal/audio/config"
 
 	"github.com/pion/webrtc/v4"
+	"github.com/rs/zerolog/log"
 )
 
 // setupAudioTrack creates and adds an audio track to the peer connection
-func setupAudioTrack(pc *webrtc.PeerConnection) (*webrtc.TrackLocalStaticSample, error) {
+func setupAudioTrack(pc *webrtc.PeerConnection, audioConfig *audiocfg.AudioConfig) (*webrtc.TrackLocalStaticSample, error) {
+	var codecCapability webrtc.RTPCodecCapability
+	codecCapability = webrtc.RTPCodecCapability{
+		MimeType:  audioConfig.MimeType,
+		Channels:  uint16(audioConfig.Channels),
+		ClockRate: audioConfig.SampleRate, // 8000 для PCMU
+	}
 
 	audioTrack, err := webrtc.NewTrackLocalStaticSample(
-		webrtc.RTPCodecCapability{
-			MimeType:  webrtc.MimeTypeOpus,
-			Channels:  1,
-			ClockRate: 48000,
-		},
+		codecCapability,
 		"audio",
 		"microphone",
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create audio track: %v", err)
+		return nil, fmt.Errorf("failed to create audio track: %w", err)
 	}
 
 	rtpSender, err := pc.AddTrack(audioTrack)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add track: %v", err)
+		return nil, fmt.Errorf("failed to add track: %w", err)
 	}
 
-	log.Printf("Audio track added: %s", rtpSender.Track().ID())
+	log.Info().
+		Str("track_id", rtpSender.Track().ID()).
+		Str("codec", string(audioConfig.Type)).
+		Uint32("sample_rate", audioConfig.SampleRate).
+		Msg("Audio track added")
+
 	return audioTrack, nil
 }

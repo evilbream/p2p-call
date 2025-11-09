@@ -41,7 +41,7 @@ func NewMalgoPlayback(audiocfg config.AudioConfig) (*MalgoPlayback, error) {
 		return nil, fmt.Errorf("failed to init malgo context: %w", err)
 	}
 
-	dec, err := decoder.New(audiocfg.SampleRate, audiocfg.Channels)
+	dec, err := decoder.New(audiocfg.SampleRate, uint32(audiocfg.Channels))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create decoder: %w", err)
 	}
@@ -50,13 +50,13 @@ func NewMalgoPlayback(audiocfg config.AudioConfig) (*MalgoPlayback, error) {
 		InChan:    make(chan []byte, audiocfg.BufferSize),
 		Paused:    true,
 		ctx:       ctx,
-		pcmBuffer: make([]int16, 0, audiocfg.SampleRate), // one second buffer at 48kHz
+		pcmBuffer: make([]int16, 0, audiocfg.SampleRate), // one second buffer
 		dec:       dec,
 	}
 
 	playCfg := malgo.DefaultDeviceConfig(malgo.Playback)
 	playCfg.Playback.Format = malgo.FormatS16
-	playCfg.Playback.Channels = audiocfg.Channels
+	playCfg.Playback.Channels = uint32(audiocfg.Channels)
 	playCfg.SampleRate = audiocfg.SampleRate
 
 	// decode packets in a separate goroutine

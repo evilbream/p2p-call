@@ -63,11 +63,11 @@ type AudioPipeline struct {
 
 // создает новый аудио пайплайн с заданными параметрами, еще не стартовавший
 func NewAudioPipeline(audiocfg config.AudioConfig) (*AudioPipeline, error) {
-	encoder, err := encoder.New(audiocfg.SampleRate, audiocfg.Channels)
+	encoder, err := encoder.New(audiocfg.SampleRate, uint32(audiocfg.Channels))
 	if err != nil {
 		return nil, err
 	}
-	decoder, err := decoder.New(audiocfg.SampleRate, audiocfg.Channels)
+	decoder, err := decoder.New(audiocfg.SampleRate, uint32(audiocfg.Channels))
 	if err != nil {
 		return nil, err
 	}

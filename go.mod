@@ -1,10 +1,9 @@
 module p2p-call
 
-go 1.24.6
-
-toolchain go1.24.9
+go 1.24.9
 
 require (
+	github.com/dh1tw/gosamplerate v0.1.2
 	github.com/libp2p/go-libp2p v0.44.0
 	github.com/libp2p/go-libp2p-kad-dht v0.35.1
 	github.com/multiformats/go-multiaddr v0.16.1
@@ -72,9 +71,9 @@ require (
 	github.com/pion/ice/v4 v4.0.10 // indirect
 	github.com/pion/mdns/v2 v2.0.7 // indirect
 	github.com/pion/srtp/v3 v3.0.8 // indirect
-	github.com/pion/stun/v3 v3.0.0 // indirect
-	github.com/pion/transport/v3 v3.0.8 // indirect
-	github.com/pion/turn/v4 v4.1.1 // indirect
+	github.com/pion/stun/v3 v3.0.1 // indirect
+	github.com/pion/transport/v3 v3.1.0 // indirect
+	github.com/pion/turn/v4 v4.1.2 // indirect
 	github.com/polydawn/refmt v0.89.0 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
@@ -99,7 +98,7 @@ require (
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/telemetry v0.0.0-20250908211612-aef8a434d053 // indirect
-	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.37.0 // indirect
 	gonum.org/v1/gonum v0.16.0 // indirect
@@ -115,15 +114,15 @@ require (
 	github.com/pion/interceptor v0.1.41 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/rtcp v1.2.15 // indirect
-	github.com/pion/rtp v1.8.22 // indirect
-	github.com/pion/sctp v1.8.39 // indirect
+	github.com/pion/rtcp v1.2.16 // indirect
+	github.com/pion/rtp v1.8.25 // indirect
+	github.com/pion/sctp v1.8.40 // indirect
 	github.com/pion/sdp/v3 v3.0.16 // indirect
 	github.com/pion/transport/v2 v2.2.10 // indirect
-	github.com/pion/webrtc/v4 v4.1.5
+	github.com/pion/webrtc/v4 v4.1.6
 	github.com/wlynxg/anet v0.0.5 // indirect
-	golang.org/x/crypto v0.42.0 // indirect
-	golang.org/x/net v0.44.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/crypto v0.43.0 // indirect
+	golang.org/x/net v0.46.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 )
