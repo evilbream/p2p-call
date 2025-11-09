@@ -2,6 +2,7 @@ package config
 
 import (
 	"net"
+	"p2p-call/pkg/system"
 	"testing"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 )
 
 func TestTurnServers(t *testing.T) {
-
+	system.LoadEnv(".env")
 	turnServers := GetTurnServers()
 	if len(turnServers) == 0 {
 		t.Fatalf("Expected at least one TURN server, got 0")
@@ -30,6 +31,7 @@ func TestTurnServers(t *testing.T) {
 }
 
 func TestStunServers(t *testing.T) {
+	system.LoadEnv(".env")
 	stunServers := GetStunServers()
 	if len(stunServers) == 0 {
 		t.Error("No STUN servers configured")

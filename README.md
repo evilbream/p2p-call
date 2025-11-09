@@ -30,6 +30,22 @@ docker run -it --env-file .env p2p-call
 # HTTP port 8080 and HTTPS port 8443
 docker run -it --env-file .env -p 8442:8443 p2p-call
 
-# Пробросить все аудио устройства
 docker run -it --rm --env-file .env --privileged p2p-call
 ```
+
+## Build Options
+
+### Codec Selection
+
+You can choose between two audio codecs in `cmd/main.go`:
+
+**PCMU (G.711 μ-law)**  Build without CGO, pure Go:
+```go
+audioCfg := config.NewPCMUConfig() 
+```
+
+**opus** - - Build with CGO only, required libopus
+```go
+audioCfg := config.NewOpusConfig()
+```
+

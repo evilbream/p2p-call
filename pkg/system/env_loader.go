@@ -7,6 +7,19 @@ import (
 	"strings"
 )
 
+// loadEnv loads environment variables from a .env file if not already set
+// (checks LOG_LEVEL as an indicator)
+// If the .env file is not found in the current directory, it searches for it in the project root.
+func EnshureEnvLoaded() error {
+	if os.Getenv("LOG_LEVEL") == "" { // means .env not loaded
+		err := LoadEnv(".env")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // find in root
 func findFileInProjectRoot(filename string) (string, error) {
 	dir, err := os.Getwd()

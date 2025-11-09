@@ -1,55 +1,62 @@
 package main
 
 import (
-	"log"
-	"os"
+	"context"
+	"p2p-call/internal/audio/codec"
 	"p2p-call/internal/audio/config"
 	"p2p-call/internal/audio/pipeline"
-	"p2p-call/internal/connection/rtc"
+	"p2p-call/internal/rtc"
 	"p2p-call/pkg/interface/desktop"
+	"p2p-call/pkg/logger"
 	"p2p-call/pkg/system"
+
+	"github.com/rs/zerolog/log"
 )
 
-// loadEnv loads environment variables from a .env file if not already set
-func loadEnv() {
-	if os.Getenv("LOG_LEVEL") == "" { // means .env not loaded
-		err := system.LoadEnv(".env")
-		if err != nil {
-			log.Fatalf("Error loading .env file: %v", err)
-		}
-	}
-}
-
-func readConnectionLog(connErrors chan error) {
-	for { // todo  remove it and make better
-		err := <-connErrors
-		if err != nil {
-			log.Println("Connection error:", err)
-		}
-	}
-}
-
 func main() {
-	loadEnv()
-	audioCfg := config.NewOpusConfig() //  can choose specific config here
+	if err := system.EnshureEnvLoaded(); err != nil {
+		log.Error().Msgf("Failed to load .env file: %v", err)
+		system.WaitForUserResponse(true)
+	}
+	logger.InitLogger()
+
+	ctx := context.Background()
+
+	// create audio codec also can be used opus
+	audioCfg := config.NewOpusConfig() // or config.NewOpusConfig()
+
+	// fabric create encoder and decoder based on build tags
+	enc, err := codec.CreateEncoder(audioCfg)
+	if err != nil {
+		log.Error().Msgf("Failed to create encoder: %v", err)
+		system.WaitForUserResponse(true)
+	}
+	audioCfg.Encoder = enc
+
+	dec, err := codec.CreateDecoder(audioCfg)
+	if err != nil {
+		log.Error().Msgf("Failed to create decoder: %v", err)
+		system.WaitForUserResponse(true)
+	}
+	audioCfg.Decoder = dec
+
+	//audioCfg := config.NewOpusConfig() // can be selected any codec here
 
 	// connect to audio pipeline
 	pipeline, err := pipeline.NewAudioPipeline(audioCfg)
 	if err != nil {
-		//log.Fatal("Failed to create audio pipeline:", err)
-		log.Printf("Failed to create audio pipeline %v", err)
-		select {} // to check error in console
+		log.Error().Msgf("Failed to create audio pipeline: %v", err)
+		system.WaitForUserResponse(true)
 	}
 	defer pipeline.Close()
 
-	webRtcCon := rtc.NewConnection(pipeline, "opus")
+	webRtcCon := rtc.NewConnection(pipeline)
+	go webRtcCon.LogConnectionErrors(webRtcCon.ConStatusChannel)
 	// init peer connection
-	go webRtcCon.Connect(1)
-	// wait for connection to be established
-	if err := <-webRtcCon.Connectionchannel; err != nil {
-		log.Fatal("Failed to establish WebRTC connection:", err)
+	if err := webRtcCon.Connect(ctx, &audioCfg); err != nil {
+		log.Error().Msgf("Failed to start webrtc connection: %v", err)
+		system.WaitForUserResponse(true)
 	}
-	go readConnectionLog(webRtcCon.Connectionchannel)
 
 	desktopIface, err := desktop.NewDesktopInterface(pipeline.Capture, pipeline.Playback)
 	if err != nil {

@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"log"
 	"p2p-call/internal/audio/capture"
+	"p2p-call/internal/audio/codec/iface"
 	"p2p-call/internal/audio/config"
-	"p2p-call/internal/audio/decoder"
-	"p2p-call/internal/audio/encoder"
 	"p2p-call/internal/audio/playback"
 	"time"
 
@@ -54,38 +53,39 @@ var (
 type AudioPipeline struct {
 	Capture  *capture.MalgoCapture
 	Playback *playback.MalgoPlayback
-	encoder  encoder.Encoder
-	decoder  decoder.Decoder
+	encoder  iface.Encoder
+	decoder  iface.Decoder
 
 	QuitSend chan struct{}
 	QuitRecv chan struct{}
 }
 
-// создает новый аудио пайплайн с заданными параметрами, еще не стартовавший
 func NewAudioPipeline(audiocfg config.AudioConfig) (*AudioPipeline, error) {
-	encoder, err := encoder.New(audiocfg.SampleRate, audiocfg.Channels)
-	if err != nil {
-		return nil, err
-	}
-	decoder, err := decoder.New(audiocfg.SampleRate, audiocfg.Channels)
-	if err != nil {
-		return nil, err
-	}
 
+	// create capture
 	capture, err := capture.NewMalgoCapture(audiocfg)
 	if err != nil {
 		return nil, err
 	}
+
+	if err := capture.StartMalgoCapture(); err != nil {
+		return nil, err
+	}
+
+	// create playback
 	playback, err := playback.NewMalgoPlayback(audiocfg)
 	if err != nil {
+		return nil, err
+	}
+	if err := playback.StartMalgoPlayback(); err != nil {
 		return nil, err
 	}
 
 	ap := &AudioPipeline{
 		Capture:  capture,
 		Playback: playback,
-		encoder:  encoder,
-		decoder:  decoder,
+		encoder:  audiocfg.Encoder,
+		decoder:  audiocfg.Decoder,
 		QuitSend: make(chan struct{}),
 		QuitRecv: make(chan struct{}),
 	}
