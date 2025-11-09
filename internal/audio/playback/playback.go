@@ -3,8 +3,8 @@ package playback
 import (
 	"fmt"
 	"log"
+	"p2p-call/internal/audio/codec/iface"
 	"p2p-call/internal/audio/config"
-	"p2p-call/internal/audio/decoder"
 	"sync"
 
 	"github.com/gen2brain/malgo"
@@ -19,7 +19,8 @@ type MalgoPlayback struct {
 
 	pcmBuffer []int16
 	bufferMu  sync.Mutex
-	dec       decoder.Decoder
+	dec       iface.Decoder
+	playCfg   malgo.DeviceConfig
 }
 
 func (mp *MalgoPlayback) Close() {
@@ -40,25 +41,26 @@ func NewMalgoPlayback(audiocfg config.AudioConfig) (*MalgoPlayback, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init malgo context: %w", err)
 	}
-
-	dec, err := decoder.New(audiocfg.SampleRate, uint32(audiocfg.Channels))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create decoder: %w", err)
-	}
-
 	mp := &MalgoPlayback{
 		InChan:    make(chan []byte, audiocfg.BufferSize),
 		Paused:    true,
 		ctx:       ctx,
 		pcmBuffer: make([]int16, 0, audiocfg.SampleRate), // one second buffer
-		dec:       dec,
+		dec:       audiocfg.Decoder,
 	}
 
 	playCfg := malgo.DefaultDeviceConfig(malgo.Playback)
 	playCfg.Playback.Format = malgo.FormatS16
 	playCfg.Playback.Channels = uint32(audiocfg.Channels)
 	playCfg.SampleRate = audiocfg.SampleRate
+	mp.playCfg = playCfg
+	mp.dec = audiocfg.Decoder
 
+	return mp, nil
+}
+
+// StartMalgoPlayback starts the playback device
+func (mp *MalgoPlayback) StartMalgoPlayback() error {
 	// decode packets in a separate goroutine
 	go mp.decodeWorker()
 
@@ -74,7 +76,7 @@ func NewMalgoPlayback(audiocfg config.AudioConfig) (*MalgoPlayback, error) {
 			return
 		}
 
-		samplesNeeded := int(frameCount) * int(playCfg.Playback.Channels)
+		samplesNeeded := int(frameCount) * int(mp.playCfg.Playback.Channels)
 
 		mp.bufferMu.Lock()
 		availableSamples := len(mp.pcmBuffer)
@@ -104,18 +106,18 @@ func NewMalgoPlayback(audiocfg config.AudioConfig) (*MalgoPlayback, error) {
 		mp.bufferMu.Unlock()
 	}
 
-	playDev, err := malgo.InitDevice(ctx.Context, playCfg, malgo.DeviceCallbacks{Data: onPlay})
+	playDev, err := malgo.InitDevice(mp.ctx.Context, mp.playCfg, malgo.DeviceCallbacks{Data: onPlay})
 	if err != nil {
-		return nil, fmt.Errorf("failed to open playback device: %w", err)
+		return fmt.Errorf("failed to open playback device: %w", err)
 	}
 	mp.device = playDev
 
 	if err := mp.device.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start playback device: %w", err)
+		return fmt.Errorf("failed to start playback device: %w", err)
 	}
 
 	log.Println("Playback device started")
-	return mp, nil
+	return nil
 }
 
 // decodeWorker decode incoming encoded packets

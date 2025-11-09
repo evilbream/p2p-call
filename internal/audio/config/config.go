@@ -2,9 +2,18 @@ package config
 
 import (
 	"log"
+	"p2p-call/internal/audio/codec/iface"
 
 	"github.com/pion/webrtc/v4"
 )
+
+type Encoder interface {
+	Encode(pcm []int16) ([]byte, error)
+}
+
+type Decoder interface {
+	Decode(encoded []byte) ([]int16, error)
+}
 
 type AudioConfigType string
 
@@ -37,6 +46,8 @@ type AudioConfig struct {
 	SDPFmtpLine  string
 	PayloadType  uint8
 	MimeType     string
+	Encoder      iface.Encoder
+	Decoder      iface.Decoder
 }
 
 // NewOpusConfig creates AudioConfig for Opus codec
@@ -68,4 +79,10 @@ func NewPCMUConfig() AudioConfig {
 		PayloadType:  0,
 		MimeType:     webrtc.MimeTypePCMU,
 	}
+}
+
+// SetEncoderDecoder sets the encoder and decoder for the audio config
+func (ac *AudioConfig) SetEncoderDecoder(enc iface.Encoder, dec iface.Decoder) {
+	ac.Encoder = enc
+	ac.Decoder = dec
 }

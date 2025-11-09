@@ -3,7 +3,6 @@ module p2p-call
 go 1.24.9
 
 require (
-	github.com/dh1tw/gosamplerate v0.1.2
 	github.com/libp2p/go-libp2p v0.44.0
 	github.com/libp2p/go-libp2p-kad-dht v0.35.1
 	github.com/multiformats/go-multiaddr v0.16.1

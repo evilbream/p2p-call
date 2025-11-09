@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"p2p-call/internal/audio/codec"
 	"p2p-call/internal/audio/config"
 	"p2p-call/internal/audio/pipeline"
 	"p2p-call/internal/rtc"
@@ -20,8 +21,26 @@ func main() {
 	logger.InitLogger()
 
 	ctx := context.Background()
-	audioCfg := config.NewPCMUConfig()
-	//audioCfg := config.NewOpusConfig() // can be selected any codec
+
+	// create audio codec also can be used opus
+	audioCfg := config.NewOpusConfig() // or config.NewOpusConfig()
+
+	// fabric create encoder and decoder based on build tags
+	enc, err := codec.CreateEncoder(audioCfg)
+	if err != nil {
+		log.Error().Msgf("Failed to create encoder: %v", err)
+		system.WaitForUserResponse(true)
+	}
+	audioCfg.Encoder = enc
+
+	dec, err := codec.CreateDecoder(audioCfg)
+	if err != nil {
+		log.Error().Msgf("Failed to create decoder: %v", err)
+		system.WaitForUserResponse(true)
+	}
+	audioCfg.Decoder = dec
+
+	//audioCfg := config.NewOpusConfig() // can be selected any codec here
 
 	// connect to audio pipeline
 	pipeline, err := pipeline.NewAudioPipeline(audioCfg)
