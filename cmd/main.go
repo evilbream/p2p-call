@@ -23,7 +23,7 @@ func main() {
 	ctx := context.Background()
 
 	// create audio codec also can be used opus
-	audioCfg := config.NewOpusConfig() // or config.NewOpusConfig()
+	audioCfg := config.NewPCMUConfig() // or config.NewOpusConfig()
 
 	// fabric create encoder and decoder based on build tags
 	enc, err := codec.CreateEncoder(audioCfg)

@@ -70,10 +70,10 @@ func (d *Discover) ProcessOnePeer(ctx context.Context, host host.Host, peer peer
 		return shouldExit
 	}
 
-	if peer.ID > host.ID() {
-		log.Info().Str("peer", peer.String()).Msg("Peer ID greater than host ID, waiting for incoming connection")
-		return shouldExit // wait for the other peer to connect
-	}
+	//if peer.ID > host.ID() {
+	//	log.Info().Str("peer", peer.String()).Msg("Peer ID greater than host ID, waiting for incoming connection")
+	//	return shouldExit // wait for the other peer to connect
+	//}
 
 	if host.Network().Connectedness(peer.ID) == network.Connected {
 		log.Info().Str("peer", peer.String()).Msg("Already connected")

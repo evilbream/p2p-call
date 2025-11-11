@@ -28,7 +28,7 @@ func initMDNS(peerhost host.Host, rendezvous string) chan peer.AddrInfo {
 	// An hour might be a long long period in practical applications. But this is fine for us
 	ser := mdns.NewMdnsService(peerhost, rendezvous, n)
 	if err := ser.Start(); err != nil {
-		panic(err)
+		log.Error().Err(err).Msg("Failed to start mDNS service")
 	}
 	return n.PeerChan
 }
@@ -58,11 +58,10 @@ func (m *MDNSDiscovery) Start(ctx context.Context) error {
 	for {
 		log.Info().Msg("Waiting for peers to connect...")
 		select {
-		case <-ctx.Done(): // break if cant find any peer in given time
+		case <-ctx.Done():
 			log.Info().Msg("mDNS discovery stopped")
 			return ctx.Err()
 		case peer := <-peerChan:
-			// dont stop on one peer found, try to find others
 			if m.ProcessOnePeer(ctx, host, peer) {
 				return nil
 			}
