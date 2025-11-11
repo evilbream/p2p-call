@@ -34,25 +34,25 @@ func (d *DiscoverManager) StartDiscovery(ctx context.Context, ready chan struct{
 	defer dhtCancel()
 	defer mdnsCancel()
 
-	mdnsFlag := false
-	if mdnsFlag {
-		go func() {
-			log.Info().Msg("Starting mdns discovery...")
-			mdnsDiscover := mdns.MDNSDiscovery{Discover: d.baseDicover}
-			if err := mdnsDiscover.Start(mdnsCtx); err != nil {
-				if err == context.Canceled {
-					return
-				}
-				log.Debug().Err(err).Msg("mDNS discovery error")
+	//mdnsFlag := false
+	//if mdnsFlag {
+	go func() {
+		log.Info().Msg("Starting mdns discovery...")
+		mdnsDiscover := mdns.MDNSDiscovery{Discover: d.baseDicover}
+		if err := mdnsDiscover.Start(mdnsCtx); err != nil {
+			if err == context.Canceled {
 				return
 			}
+			log.Debug().Err(err).Msg("mDNS discovery error")
+			return
+		}
 
-			log.Info().Msg("mDNS discovery succeeded")
-			peerFound <- struct{}{}
-			dhtCancel() // stop dht if running
+		log.Info().Msg("mDNS discovery succeeded")
+		peerFound <- struct{}{}
+		dhtCancel() // stop dht if running
 
-		}()
-	}
+	}()
+	//}
 	go func() {
 		select {
 		case <-time.After(3 * time.Second):
