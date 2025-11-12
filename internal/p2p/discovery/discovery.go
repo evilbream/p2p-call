@@ -77,9 +77,7 @@ func (d *DiscoverManager) StartDiscovery(ctx context.Context, ready chan struct{
 		select {
 		case <-ready:
 			log.Info().Msg("Stream established, stopping discovery")
-			mdnsCancel()
-			dhtCancel()
-			return nil // Возвращаемся сразу
+			return nil
 		case <-peerFound:
 			log.Info().Msg("Peer discovery succeeded")
 			return nil
