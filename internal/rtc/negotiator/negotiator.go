@@ -3,6 +3,7 @@ package negotiator
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -51,6 +52,12 @@ func (n *Negotiator) CreateOffer(ctx context.Context) error {
 		return fmt.Errorf("failed to create offer: %w", err)
 	}
 
+	if !strings.Contains(offer.SDP, "m=application") {
+		log.Warn().Msg("⚠ DataChannel NOT included in SDP offer!")
+	} else {
+		log.Info().Msg("✓ DataChannel included in SDP offer")
+	}
+
 	if err = n.pc.SetLocalDescription(offer); err != nil {
 		return fmt.Errorf("failed to set local description: %w", err)
 	}
@@ -65,13 +72,13 @@ func (n *Negotiator) CreateOffer(ctx context.Context) error {
 	}
 
 	n.stream.SendMessage(offerMsg)
-	log.Info().Msg("Offer sent, waiting for answer...")
+	log.Info().Msg("Offer sent, waiting for an answer...")
 
-	// Wait for answer
+	// Wait for an answer
 	select {
 	case answer := <-n.answerChan:
 		return n.processAnswer(answer)
-	case <-time.After(30 * time.Second):
+	case <-time.After(60 * time.Second):
 		return fmt.Errorf("timeout waiting for answer")
 	case <-ctx.Done():
 		return ctx.Err()
@@ -141,7 +148,7 @@ func (n *Negotiator) waitForICEGathering() {
 	select {
 	case <-done:
 		log.Info().Msg("ICE candidates gathered")
-	case <-time.After(45 * time.Second):
+	case <-time.After(10 * time.Second):
 		log.Warn().Msg("ICE gathering timeout")
 	}
 }

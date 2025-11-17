@@ -10,8 +10,8 @@ import (
 )
 
 type EventHandlers struct {
-	statusChannel chan error
-	pipeline      *pipeline.AudioPipeline
+	sm       *StateManager
+	pipeline *pipeline.AudioPipeline
 }
 
 // handleIceCandidate processes new ICE candidates
@@ -45,17 +45,18 @@ func (h EventHandlers) handleIceConnectionStateChange(state webrtc.ICEConnection
 	log.Info().Str("state", state.String()).Msg("ICE state changed")
 	// process other connection result
 	switch state {
+	case webrtc.ICEConnectionStateChecking:
+		h.sm.UpdateState(StateChecking, "ice state checking", nil)
 	case webrtc.ICEConnectionStateConnected:
-		log.Info().Msg("Ice connection is set!")
+		h.sm.UpdateState(StateConnected, "ice connected", nil)
+	case webrtc.ICEConnectionStateCompleted:
+		h.sm.UpdateState(StateConnected, "ice completed", nil)
 	case webrtc.ICEConnectionStateFailed:
-		log.Error().Msg("Ice connection failed")
-		h.statusChannel <- fmt.Errorf("ice connection failed")
+		h.sm.UpdateState(StateFailed, "ice connection failed", fmt.Errorf("ice connection failed"))
 	case webrtc.ICEConnectionStateDisconnected:
-		log.Warn().Msg("ICE disconnected...")
-		h.statusChannel <- fmt.Errorf("ice disconnected")
+		h.sm.UpdateState(StateDisconnected, "ice disconnected", fmt.Errorf("ice disconnected"))
 	case webrtc.ICEConnectionStateClosed:
-		log.Info().Msg("ICE connection closed")
-		h.statusChannel <- fmt.Errorf("ice connection closed")
+		h.sm.UpdateState(StateClosed, "ice connection closed", fmt.Errorf("ice connection closed"))
 
 	}
 }
@@ -64,12 +65,11 @@ func (h EventHandlers) handleConnectionStateChange(state webrtc.PeerConnectionSt
 	log.Info().Str("state", state.String()).Msg("Peer connection state changed")
 	switch state {
 	case webrtc.PeerConnectionStateConnected:
-		log.Info().Msg("You can start messaging!")
-		h.statusChannel <- nil // signal successful connection
+		h.sm.UpdateState(StateConnected, "connected", nil)
 	case webrtc.PeerConnectionStateFailed:
-		h.statusChannel <- fmt.Errorf("peer connection failed")
+		h.sm.UpdateState(StateFailed, "peer connection failed", fmt.Errorf("peer connection failed"))
 	case webrtc.PeerConnectionStateClosed:
-		h.statusChannel <- fmt.Errorf("peer connection closed")
+		h.sm.UpdateState(StateClosed, "peer connection closed", fmt.Errorf("peer connection closed"))
 	}
 }
 

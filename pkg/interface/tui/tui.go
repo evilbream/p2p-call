@@ -1,13 +1,14 @@
-package desktop
+package tui
 
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"p2p-call/internal/audio/capture"
 	"p2p-call/internal/audio/playback"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 type DesktopInterface struct {
@@ -27,7 +28,6 @@ func NewDesktopInterface(capture *capture.MalgoCapture, playback *playback.Malgo
 
 func (di *DesktopInterface) StartDesktopInterface() {
 	// Implementation for starting the desktop interface
-	log.Println("Preparing audio capture and playback")
 	menu := "1. Unmute\n2. Mute\n3. Play sound\n 4. Stop sound\n5. Exit"
 	println("Desktop Interface Started\nBy default u are muted and sound is on")
 	println("Menu:")
@@ -56,6 +56,31 @@ func (di *DesktopInterface) StartDesktopInterface() {
 			return
 		default:
 			println("Invalid choice, please try again.")
+		}
+	}
+}
+
+func WaitForUserResponse(exit bool, prompt ...string) {
+	var strPrompt string
+	if len(prompt) == 0 {
+		strPrompt = "\nPress Enter to exit..."
+	} else {
+		strPrompt = strings.Join(prompt, " ")
+	}
+	fmt.Println(strPrompt)
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
+	if exit {
+		os.Exit(1)
+	}
+}
+
+// reads connection log and process errors
+func LogConnectionErrors(connErrors chan error) {
+	for {
+		err := <-connErrors
+		if err != nil {
+			log.Error().Err(err).Msg("connection error")
+			WaitForUserResponse(true)
 		}
 	}
 }

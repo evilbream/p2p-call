@@ -6,7 +6,8 @@ import (
 	"p2p-call/internal/audio/config"
 	"p2p-call/internal/audio/pipeline"
 	"p2p-call/internal/rtc"
-	"p2p-call/pkg/interface/tui"
+	"p2p-call/pkg/interface/desktop"
+	"p2p-call/pkg/interface/desktop/views"
 	"p2p-call/pkg/logger"
 	"p2p-call/pkg/system"
 
@@ -22,9 +23,17 @@ func closePeerConnection(peerConnection *rtc.Connection) {
 }
 
 func main() {
+	// init desktop UI
+	app, err := desktop.NewApp()
+	if err != nil {
+		log.Error().Msgf("Failed to create desktop app: %v", err)
+		app.ShowError(err, views.ErrorFatal)
+	}
+	// run desktop UI in a separate goroutine
+
 	if err := system.EnshureEnvLoaded(); err != nil {
 		log.Error().Msgf("Failed to load .env file: %v", err)
-		tui.WaitForUserResponse(true)
+		app.ShowError(err, views.ErrorFatal)
 	}
 	logger.InitLogger()
 
@@ -37,14 +46,14 @@ func main() {
 	enc, err := codec.CreateEncoder(audioCfg)
 	if err != nil {
 		log.Error().Msgf("Failed to create encoder: %v", err)
-		tui.WaitForUserResponse(true)
+		app.ShowError(err, views.ErrorFatal)
 	}
 	audioCfg.Encoder = enc
 
 	dec, err := codec.CreateDecoder(audioCfg)
 	if err != nil {
 		log.Error().Msgf("Failed to create decoder: %v", err)
-		tui.WaitForUserResponse(true)
+		app.ShowError(err, views.ErrorFatal)
 	}
 	audioCfg.Decoder = dec
 
@@ -54,25 +63,23 @@ func main() {
 	pipeline, err := pipeline.NewAudioPipeline(audioCfg)
 	if err != nil {
 		log.Error().Msgf("Failed to create audio pipeline: %v", err)
-		tui.WaitForUserResponse(true)
+		app.ShowError(err, views.ErrorFatal)
 	}
 	defer pipeline.Close()
+	// initialize main view with audio pipeline capture and playback
 
 	webRtcCon := rtc.NewConnection(pipeline)
 	defer closePeerConnection(webRtcCon)
+
+	app.InitMainView(pipeline.Capture, pipeline.Playback, webRtcCon.DcManager.SendMessage)
+	// subscribe logger observer on state manager
 	webRtcCon.StateManager.Subscribe(logger.NewLoggerObserver())
+	// subscribe UI observer on state manager
+	webRtcCon.StateManager.Subscribe(app.UiObserver)
+	app.MainView.SetConnection(webRtcCon)
 
-	// init peer connection
-	if err := webRtcCon.Connect(ctx, &audioCfg); err != nil {
-		log.Error().Msgf("Failed to start webrtc connection: %v", err)
-		tui.WaitForUserResponse(true)
-	}
+	go webRtcCon.Connect(ctx, &audioCfg)
 
-	desktopIface, err := tui.NewDesktopInterface(pipeline.Capture, pipeline.Playback)
-	if err != nil {
-		log.Printf("Failed to create desktop interface %v", err)
-	}
-
-	desktopIface.StartDesktopInterface()
+	app.Run()
 
 }
