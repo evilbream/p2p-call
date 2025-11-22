@@ -39,10 +39,9 @@ type MainView struct {
 	speakerBtn     *widget.Button
 	callStatusText *widget.Label
 	isCallActive   bool
-	isMuted        bool
-	isSpeakerOn    bool
+	capture        *capture.MalgoCapture
+	playback       *playback.MalgoPlayback
 	SendMessage    func(text string) error
-	// add fields as necessary
 }
 
 func NewMainView(capture *capture.MalgoCapture, playback *playback.MalgoPlayback, sendMessage func(text string) error) *MainView {
@@ -51,8 +50,8 @@ func NewMainView(capture *capture.MalgoCapture, playback *playback.MalgoPlayback
 	}
 	mv := MainView{messages: []viewmodel.ChatMessage{},
 		isCallActive: false,
-		isMuted:      capture.Paused,
-		isSpeakerOn:  capture.Paused,
+		capture:      capture,
+		playback:     playback,
 		SendMessage:  sendMessage,
 	}
 
@@ -97,22 +96,19 @@ func NewMainView(capture *capture.MalgoCapture, playback *playback.MalgoPlayback
 		mv.speakerBtn,
 	)
 
-	// Поле ввода сообщения
+	// message input area
 	mv.messageEntry = widget.NewEntry()
-	mv.messageEntry.SetPlaceHolder("Введите сообщение...")
+	mv.messageEntry.SetPlaceHolder("Enter your message...")
 	mv.messageEntry.OnSubmitted = func(text string) {
 		mv.sendMessage()
 	}
 
-	sendBtn := widget.NewButton("Отправить", func() {
+	sendBtn := widget.NewButton("Send", func() {
 		mv.sendMessage()
 	})
 
 	inputArea := container.NewBorder(nil, nil, nil, sendBtn, mv.messageEntry)
 
-	// Добавляем приветственное сообщение
-
-	// Заголовок
 	header := canvas.NewText("P2P call", color.Black)
 	header.TextSize = 20
 	header.Alignment = fyne.TextAlignCenter
@@ -123,7 +119,7 @@ func NewMainView(capture *capture.MalgoCapture, playback *playback.MalgoPlayback
 		widget.NewSeparator(),
 	)
 
-	// Макет чата (появится после подключения)
+	// chat maket (appears after connection)
 	chatContent := container.NewBorder(
 		container.NewVBox(
 			headerContainer,
@@ -188,7 +184,7 @@ func (ca *MainView) addSystemMessage(text string) {
 	ca.addMessageToUI(msg)
 }
 
-// addMessageToUI создает виджет для сообщения и добавляет в контейнер
+// addMessageToUI creates a widget for the message and adds it to the container
 func (ca *MainView) addMessageToUI(msg viewmodel.ChatMessage) {
 	prefix := ""
 	style := fyne.TextStyle{}
@@ -203,7 +199,11 @@ func (ca *MainView) addMessageToUI(msg viewmodel.ChatMessage) {
 	lbl.TextStyle = style
 	lbl.Wrapping = fyne.TextWrapWord
 	ca.messagesBox.Add(lbl)
-	ca.messagesScroll.Refresh()
+	fyne.Do(func() {
+		ca.messagesScroll.Refresh()
+		ca.messagesScroll.ScrollToBottom()
+	})
+
 }
 
 func (ca *MainView) startCall() {
@@ -219,8 +219,8 @@ func (ca *MainView) startCall() {
 
 func (ca *MainView) endCall() {
 	ca.isCallActive = false
-	ca.isMuted = false
-	ca.isSpeakerOn = true
+	ca.capture.Paused = true
+	ca.playback.Paused = true
 	ca.startCallBtn.Show()
 	ca.endCallBtn.Hide()
 	ca.muteBtn.Hide()
@@ -232,8 +232,8 @@ func (ca *MainView) endCall() {
 }
 
 func (ca *MainView) toggleMute() {
-	ca.isMuted = !ca.isMuted
-	if ca.isMuted {
+	ca.capture.Paused = !ca.capture.Paused // there should be callback and not a direct call!!!!!!!!!!!!!!!!!!! (not prod ready)
+	if ca.capture.Paused {
 		ca.muteBtn.SetText(labelUnmute)
 		ca.addSystemMessage("Microphone muted")
 	} else {
@@ -243,8 +243,8 @@ func (ca *MainView) toggleMute() {
 }
 
 func (ca *MainView) toggleSpeaker() {
-	ca.isSpeakerOn = !ca.isSpeakerOn
-	if ca.isSpeakerOn {
+	ca.playback.Paused = !ca.playback.Paused
+	if ca.playback.Paused {
 		ca.speakerBtn.SetText(labelSpeakerOn)
 		ca.addSystemMessage("Динамик включен")
 	} else {
@@ -259,10 +259,13 @@ func (v *MainView) SetConnection(conn *rtc.Connection) {
 		log.Info().
 			Str("type", string(msg.Type)).
 			Str("text", msg.Payload).
-			Msg("ChatViewModel received message") // ← ДОБАВЬТЕ ЛОГ
+			Msg("ChatViewModel received message")
 
 		if msg.Type == datachannel.MessageTypeText {
-			v.ReceiveMesage(msg.Payload)
+			text := msg.Payload
+			fyne.Do(func() {
+				v.ReceiveMesage(text)
+			})
 		}
 	}
 

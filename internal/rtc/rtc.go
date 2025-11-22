@@ -31,7 +31,7 @@ func NewConnection(pipeline *pipeline.AudioPipeline) *Connection {
 
 func createConfig() webrtc.Configuration {
 	stunServers := config.GetStunServers()
-	turnServers := config.GetTurnServers()
+	//turnServers := config.GetTurnServers()
 
 	config := webrtc.Configuration{
 		BundlePolicy:  webrtc.BundlePolicyMaxBundle,
@@ -39,7 +39,8 @@ func createConfig() webrtc.Configuration {
 	}
 
 	// use stun and turn servers from config
-	config.ICEServers = append(stunServers, turnServers...)
+	config.ICEServers = stunServers
+
 	config.ICECandidatePoolSize = 15 // reduce ice candidates and use trickle candidate send
 
 	return config

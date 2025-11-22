@@ -37,12 +37,10 @@ func (dcm *DataChannelManager) CreateDataChannel(pc *webrtc.PeerConnection, labe
 	}
 
 	ordered := true
-	negotiated := true
-	maxRetransmits := uint16(3)
+	maxRetransmits := uint16(15)
 
 	dc, err := pc.CreateDataChannel(label, &webrtc.DataChannelInit{
 		Ordered:        &ordered,
-		Negotiated:     &negotiated,
 		MaxRetransmits: &maxRetransmits,
 	})
 	if err != nil {
