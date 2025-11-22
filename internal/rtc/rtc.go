@@ -5,6 +5,7 @@ import (
 	"fmt"
 	audiocfg "p2p-call/internal/audio/config"
 	"p2p-call/internal/audio/pipeline"
+	"p2p-call/internal/rtc/datachannel"
 	"p2p-call/pkg/config"
 	"p2p-call/pkg/system"
 	"time"
@@ -14,20 +15,23 @@ import (
 )
 
 type Connection struct {
-	Pipeline         *pipeline.AudioPipeline
-	ConStatusChannel chan error
+	Pipeline       *pipeline.AudioPipeline
+	StateManager   *StateManager
+	DcManager      *datachannel.DataChannelManager
+	PeerConnection *webrtc.PeerConnection
 }
 
 func NewConnection(pipeline *pipeline.AudioPipeline) *Connection {
 	return &Connection{
-		Pipeline:         pipeline,
-		ConStatusChannel: make(chan error, 1),
+		Pipeline:     pipeline,
+		StateManager: NewStateManager(),
+		DcManager:    datachannel.NewDataChannelManager(),
 	}
 }
 
 func createConfig() webrtc.Configuration {
 	stunServers := config.GetStunServers()
-	turnServers := config.GetTurnServers()
+	//turnServers := config.GetTurnServers()
 
 	config := webrtc.Configuration{
 		BundlePolicy:  webrtc.BundlePolicyMaxBundle,
@@ -35,21 +39,11 @@ func createConfig() webrtc.Configuration {
 	}
 
 	// use stun and turn servers from config
-	config.ICEServers = append(stunServers, turnServers...)
+	config.ICEServers = stunServers
+
 	config.ICECandidatePoolSize = 15 // reduce ice candidates and use trickle candidate send
 
 	return config
-}
-
-// reads connection log and process errors
-func (con Connection) LogConnectionErrors(connErrors chan error) {
-	for {
-		err := <-connErrors
-		if err != nil {
-			log.Error().Err(err).Msg("WebRTC connection error")
-			system.WaitForUserResponse(true)
-		}
-	}
 }
 
 // returns connection result error, nil if success
@@ -59,8 +53,8 @@ func (con Connection) Connect(ctx context.Context, audioCfg *audiocfg.AudioConfi
 
 	settingEngine := webrtc.SettingEngine{}
 	settingEngine.SetICETimeouts(
-		time.Second*60, // Disconnected timeout upped for double NAT
-		time.Second*30, // Failed timeout
+		time.Second*90, // Disconnected timeout upped for double NAT
+		time.Second*45, // Failed timeout
 		time.Second*5,  // Keepalive interval
 	)
 
@@ -95,9 +89,19 @@ func (con Connection) Connect(ctx context.Context, audioCfg *audiocfg.AudioConfi
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %v", err)
 	}
-	//defer peerConnection.Close()
+	con.PeerConnection = peerConnection
 
-	audioTrack, err := setupAudioTrack(peerConnection, audioCfg)
+	// setup text channel
+	if err := con.DcManager.CreateDataChannel(con.PeerConnection, "chat"); err != nil {
+		return fmt.Errorf("failed to create data channel: %v", err)
+	}
+
+	con.PeerConnection.OnDataChannel(func(dc *webrtc.DataChannel) {
+		log.Info().Msgf("New DataChannel %s %d", dc.Label(), dc.ID())
+		con.DcManager.SetDataChannel(dc)
+	})
+
+	audioTrack, err := setupAudioTrack(con.PeerConnection, audioCfg)
 	if err != nil {
 		return fmt.Errorf("failed to setup audio track: %v", err)
 	}
@@ -107,14 +111,22 @@ func (con Connection) Connect(ctx context.Context, audioCfg *audiocfg.AudioConfi
 
 	// create event handler
 	eventHandler := EventHandlers{
-		statusChannel: con.ConStatusChannel,
-		pipeline:      con.Pipeline,
+		sm:       con.StateManager,
+		pipeline: con.Pipeline,
 	}
-	eventHandler.setupEventHandlers(peerConnection)
+	eventHandler.setupEventHandlers(con.PeerConnection)
 	go con.Pipeline.StartSending(audioTrack)
-	signal := NewSignal(sessionID, peerConnection)
+	signal := NewSignal(sessionID, con.PeerConnection)
 	if err := signal.StartWebrtcCon(ctx); err != nil {
 		return err
+	}
+	con.StateManager.UpdateState(StateConnected, "WebRTC connection established", nil)
+	return nil
+}
+
+func (con *Connection) Close() error {
+	if con.PeerConnection != nil {
+		return con.PeerConnection.Close()
 	}
 	return nil
 }
