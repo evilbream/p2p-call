@@ -58,7 +58,7 @@ func main() {
 	}
 	defer pipeline.Close()
 
-	webRtcCon := rtc.NewConnection(pipeline)
+	webRtcCon := rtc.NewConnection(pipeline, "sss")
 	defer closePeerConnection(webRtcCon)
 	webRtcCon.StateManager.Subscribe(logger.NewLoggerObserver())
 

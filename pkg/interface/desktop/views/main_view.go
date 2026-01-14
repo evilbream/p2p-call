@@ -28,31 +28,39 @@ const (
 )
 
 type MainView struct {
-	content        *fyne.Container
-	messages       []viewmodel.ChatMessage
-	messagesBox    *fyne.Container
-	messagesScroll *container.Scroll
-	messageEntry   *widget.Entry
-	startCallBtn   *widget.Button
-	endCallBtn     *widget.Button
-	muteBtn        *widget.Button
-	speakerBtn     *widget.Button
-	callStatusText *widget.Label
-	isCallActive   bool
-	capture        *capture.MalgoCapture
-	playback       *playback.MalgoPlayback
-	SendMessage    func(text string) error
+	content            *fyne.Container
+	messages           []viewmodel.ChatMessage
+	messagesBox        *fyne.Container
+	messagesScroll     *container.Scroll
+	messageEntry       *widget.Entry
+	startCallBtn       *widget.Button
+	endCallBtn         *widget.Button
+	muteBtn            *widget.Button
+	speakerBtn         *widget.Button
+	callStatusText     *widget.Label
+	isCallActive       bool
+	capture            *capture.MalgoCapture
+	playback           *playback.MalgoPlayback
+	SendMessage        func(text string) error
+	disconnectCallBack func()
+	disconnectBtn      *widget.Button
 }
 
 func NewMainView(capture *capture.MalgoCapture, playback *playback.MalgoPlayback, sendMessage func(text string) error) *MainView {
 	if capture == nil || playback == nil {
 		return nil
 	}
+
+	disconnectBtn := widget.NewButton("Disconnect", func() {
+		//will be set later
+	})
+
 	mv := MainView{messages: []viewmodel.ChatMessage{},
-		isCallActive: false,
-		capture:      capture,
-		playback:     playback,
-		SendMessage:  sendMessage,
+		isCallActive:  false,
+		capture:       capture,
+		playback:      playback,
+		SendMessage:   sendMessage,
+		disconnectBtn: disconnectBtn,
 	}
 
 	// set message box and scroll
@@ -115,7 +123,9 @@ func NewMainView(capture *capture.MalgoCapture, playback *playback.MalgoPlayback
 	header.TextStyle = fyne.TextStyle{Bold: true}
 
 	headerContainer := container.NewVBox(
-		container.NewCenter(header),
+		container.NewBorder(nil, nil, nil, mv.disconnectBtn,
+			container.NewCenter(header),
+		),
 		widget.NewSeparator(),
 	)
 
@@ -270,4 +280,9 @@ func (v *MainView) SetConnection(conn *rtc.Connection) {
 	}
 
 	log.Info().Msg("ChatViewModel connected to DataChannel")
+}
+
+func (v *MainView) SetDisconnectCallback(callback func()) {
+	v.disconnectCallBack = callback
+	v.disconnectBtn.OnTapped = callback
 }

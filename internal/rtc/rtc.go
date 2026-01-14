@@ -19,13 +19,15 @@ type Connection struct {
 	StateManager   *StateManager
 	DcManager      *datachannel.DataChannelManager
 	PeerConnection *webrtc.PeerConnection
+	Rendezvous     string
 }
 
-func NewConnection(pipeline *pipeline.AudioPipeline) *Connection {
+func NewConnection(pipeline *pipeline.AudioPipeline, rendezvous string) *Connection {
 	return &Connection{
 		Pipeline:     pipeline,
 		StateManager: NewStateManager(),
 		DcManager:    datachannel.NewDataChannelManager(),
+		Rendezvous:   rendezvous,
 	}
 }
 
@@ -116,7 +118,7 @@ func (con Connection) Connect(ctx context.Context, audioCfg *audiocfg.AudioConfi
 	}
 	eventHandler.setupEventHandlers(con.PeerConnection)
 	go con.Pipeline.StartSending(audioTrack)
-	signal := NewSignal(sessionID, con.PeerConnection)
+	signal := NewSignal(sessionID, con.PeerConnection, con.Rendezvous)
 	if err := signal.StartWebrtcCon(ctx); err != nil {
 		return err
 	}
@@ -124,9 +126,36 @@ func (con Connection) Connect(ctx context.Context, audioCfg *audiocfg.AudioConfi
 	return nil
 }
 
+// ...existing code...
 func (con *Connection) Close() error {
+	var errs []error
+
+	// Close data channel
+	if con.DcManager != nil {
+		if err := con.DcManager.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("data channel close error: %w", err))
+		}
+	}
+
+	// Close peer connection
 	if con.PeerConnection != nil {
-		return con.PeerConnection.Close()
+		if err := con.PeerConnection.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("peer connection close error: %w", err))
+		}
+	}
+
+	// Stop audio pipeline
+	if con.Pipeline != nil {
+		con.Pipeline.Close()
+	}
+
+	// Update state
+	if con.StateManager != nil {
+		con.StateManager.UpdateState(StateDisconnected, "Connection closed", nil)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("close errors: %v", errs)
 	}
 	return nil
 }

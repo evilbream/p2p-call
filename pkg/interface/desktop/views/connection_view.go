@@ -9,17 +9,37 @@ import (
 type ConnectionView struct {
 	statuslabel *widget.Label
 	content     *fyne.Container
+	cancelBtn   *widget.Button
+	onCancel    func()
 }
 
 func NewConnectionView() *ConnectionView {
 	statusLabel := widget.NewLabel("Connecting...")
 	statusLabel.Alignment = fyne.TextAlignCenter
 
-	content := container.NewCenter(statusLabel)
+	cancelBtn := widget.NewButton("Cancel", func() {
+		// will be set latter
+	})
+
+	content := container.NewCenter(
+		container.NewVBox(
+			widget.NewProgressBarInfinite(),
+			statusLabel,
+			container.NewPadded(cancelBtn),
+		),
+	)
 
 	return &ConnectionView{
 		statuslabel: statusLabel,
 		content:     content,
+		cancelBtn:   cancelBtn,
+	}
+}
+
+func (v *ConnectionView) SetCancelCallback(callback func()) {
+	v.onCancel = callback
+	if v.cancelBtn != nil {
+		v.cancelBtn.OnTapped = v.onCancel
 	}
 }
 

@@ -15,8 +15,8 @@ type DiscoverManager struct {
 	baseDicover base.Discover
 }
 
-func NewDiscover(streamHandler base.StreamHandler) (*DiscoverManager, error) {
-	baseDiscover, err := base.NewDiscoverWithDefaultCfg(streamHandler)
+func NewDiscover(streamHandler base.StreamHandler, rendezvousString string) (*DiscoverManager, error) {
+	baseDiscover, err := base.NewDiscoverWithDefaultCfg(streamHandler, rendezvousString)
 	if err != nil {
 		return nil, err
 	}

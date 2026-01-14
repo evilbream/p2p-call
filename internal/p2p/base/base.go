@@ -14,10 +14,9 @@ import (
 )
 
 var (
-	RendezvousString string                = "p2p-meet-example-000cdfb2-7055-4c36-87a7-94a646eaf57e"
-	BootstrapPeers   []multiaddr.Multiaddr = dht.DefaultBootstrapPeers
-	ListenAddresses  []multiaddr.Multiaddr = []multiaddr.Multiaddr{}
-	ProtocolID       string                = "/p2p-call/connection/1.1.0"
+	BootstrapPeers  []multiaddr.Multiaddr = dht.DefaultBootstrapPeers
+	ListenAddresses []multiaddr.Multiaddr = []multiaddr.Multiaddr{}
+	ProtocolID      string                = "/p2p-call/connection/1.1.0"
 	//allowedProtocols map[protocol.ID]struct{} = map[protocol.ID]struct{}{ релаизовать отказ в подключении без нужной реалиазции протокола
 	//	protocol.ID(ProtocolID): {},
 	//}
@@ -36,10 +35,10 @@ type DiscoverConfig struct {
 	ListenPort       int
 }
 
-func NewDefaultDiscoverConfig() *DiscoverConfig {
+func NewDefaultDiscoverConfig(rendezvousString string) *DiscoverConfig {
 	return &DiscoverConfig{
 		ProtocolId:       ProtocolID,
-		RendezvousString: RendezvousString,
+		RendezvousString: rendezvousString,
 		ListenAddresses:  ListenAddresses,
 		BootstrapPeers:   dht.DefaultBootstrapPeers,
 		ListenHost:       "0.0.0.0",
@@ -55,11 +54,11 @@ type Discover struct {
 	StreamHandler func(stream network.Stream)
 }
 
-func NewDiscoverWithDefaultCfg(streamHandler StreamHandler) (*Discover, error) {
+func NewDiscoverWithDefaultCfg(streamHandler StreamHandler, rendezvousString string) (*Discover, error) {
 	if streamHandler == nil {
 		return nil, fmt.Errorf("stream handler cannot be nil")
 	}
-	cfg := NewDefaultDiscoverConfig()
+	cfg := NewDefaultDiscoverConfig(rendezvousString)
 	return &Discover{Cfg: cfg, StreamHandler: streamHandler}, nil
 }
 

@@ -110,3 +110,13 @@ func (dcm *DataChannelManager) processSendQueue() {
 		log.Debug().Msgf("Sent message over data channel: %d bytes", len(msg))
 	}
 }
+
+func (dcm *DataChannelManager) Close() error {
+	dcm.mu.Lock()
+	defer dcm.mu.Unlock()
+
+	if dcm.dataChannel != nil {
+		return dcm.dataChannel.Close()
+	}
+	return nil
+}

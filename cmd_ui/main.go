@@ -14,12 +14,29 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func closePeerConnection(peerConnection *rtc.Connection) {
-	if peerConnection != nil {
-		if err := peerConnection.Close(); err != nil {
+type CallManager struct {
+	app        *desktop.App
+	connection *rtc.Connection
+	pipeline   *pipeline.AudioPipeline
+	cancel     context.CancelFunc
+}
+
+func (cm *CallManager) Close() {
+	if cm.cancel != nil {
+		cm.cancel()
+		cm.cancel = nil
+	}
+	if cm.connection != nil {
+		if err := cm.connection.Close(); err != nil {
 			log.Error().Msgf("Failed to close peer connection: %v", err)
 		}
+		cm.connection = nil
 	}
+	// think how to close it correctly
+	//if cm.pipeline != nil {
+	//	cm.pipeline.Close()
+	//	cm.pipeline = nil
+	//}
 }
 
 func main() {
@@ -27,17 +44,33 @@ func main() {
 	app, err := desktop.NewApp()
 	if err != nil {
 		log.Error().Msgf("Failed to create desktop app: %v", err)
-		app.ShowError(err, views.ErrorFatal)
+		return
 	}
-	// run desktop UI in a separate goroutine
 
+	manager := &CallManager{app: app}
+	defer manager.Close()
+
+	// Set up rendezvous view with callback
+	app.SetRendezvousView(func(rendezvousString string) {
+		go manager.initializeConnection(rendezvousString)
+	})
+
+	app.Run()
+}
+
+func (cm *CallManager) initializeConnection(rendezvousString string) {
 	if err := system.EnshureEnvLoaded(); err != nil {
 		log.Error().Msgf("Failed to load .env file: %v", err)
-		app.ShowError(err, views.ErrorFatal)
+		cm.app.ShowError(err, views.ErrorFatal)
+		return
 	}
 	logger.InitLogger()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	cm.cancel = cancel
+
+	// Show connecting status
+	cm.app.ShowConnectionView()
 
 	// create audio codec also can be used opus
 	audioCfg := config.NewOpusConfig() // or config.NewOpusConfig()
@@ -46,40 +79,44 @@ func main() {
 	enc, err := codec.CreateEncoder(audioCfg)
 	if err != nil {
 		log.Error().Msgf("Failed to create encoder: %v", err)
-		app.ShowError(err, views.ErrorFatal)
+		cm.app.ShowError(err, views.ErrorFatal)
+		return
 	}
 	audioCfg.Encoder = enc
 
 	dec, err := codec.CreateDecoder(audioCfg)
 	if err != nil {
 		log.Error().Msgf("Failed to create decoder: %v", err)
-		app.ShowError(err, views.ErrorFatal)
+		cm.app.ShowError(err, views.ErrorFatal)
+		return
 	}
 	audioCfg.Decoder = dec
-
-	//audioCfg := config.NewOpusConfig() // can be selected any codec here
-
 	// connect to audio pipeline
 	pipeline, err := pipeline.NewAudioPipeline(audioCfg)
 	if err != nil {
 		log.Error().Msgf("Failed to create audio pipeline: %v", err)
-		app.ShowError(err, views.ErrorFatal)
+		cm.app.ShowError(err, views.ErrorFatal)
+		return
 	}
-	defer pipeline.Close()
-	// initialize main view with audio pipeline capture and playback
+	cm.pipeline = pipeline
+	webRtcCon := rtc.NewConnection(pipeline, rendezvousString)
+	cm.connection = webRtcCon
 
-	webRtcCon := rtc.NewConnection(pipeline)
-	defer closePeerConnection(webRtcCon)
+	cm.app.InitMainView(pipeline.Capture, pipeline.Playback, webRtcCon.DcManager.SendMessage)
+	cm.app.SetDisconnectCallback(func() {
+		cm.Close()
+		cm.app.ShowRendezvousView()
+	})
 
-	app.InitMainView(pipeline.Capture, pipeline.Playback, webRtcCon.DcManager.SendMessage)
 	// subscribe logger observer on state manager
 	webRtcCon.StateManager.Subscribe(logger.NewLoggerObserver())
 	// subscribe UI observer on state manager
-	webRtcCon.StateManager.Subscribe(app.UiObserver)
-	app.MainView.SetConnection(webRtcCon)
+	webRtcCon.StateManager.Subscribe(cm.app.UiObserver)
+	cm.app.MainView.SetConnection(webRtcCon)
 
-	go webRtcCon.Connect(ctx, &audioCfg)
-
-	app.Run()
-
+	if err := webRtcCon.Connect(ctx, &audioCfg); err != nil {
+		log.Error().Msgf("Failed to start webrtc connection: %v", err)
+		//cm.app.ShowError(err, views.ErrorFatal) // TODO think how to handle errors on cancel
+		return
+	}
 }

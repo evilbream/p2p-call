@@ -159,8 +159,6 @@ func (p *AudioPipeline) Decode(data []byte) ([]int16, error) {
 }
 
 func (p *AudioPipeline) Close() {
-	close(p.QuitSend)
-	close(p.QuitRecv)
 	p.Capture.Close()
 	p.Playback.Close()
 }

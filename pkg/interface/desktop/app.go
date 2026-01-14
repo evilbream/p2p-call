@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"context"
+	"errors"
 	"p2p-call/internal/audio/capture"
 	"p2p-call/internal/audio/playback"
 	"p2p-call/pkg/interface/desktop/observer"
@@ -15,6 +17,7 @@ type App struct {
 	window         fyne.Window
 	app            fyne.App
 	connectionView *views.ConnectionView
+	rendezvousView *views.RendezvousView
 	errorView      *views.ErrorView
 	MainView       *views.MainView
 	currentView    fyne.CanvasObject
@@ -51,7 +54,7 @@ func (a *App) InitMainView(capture *capture.MalgoCapture, playback *playback.Mal
 
 func (a *App) LogConnectionErrors(errChan chan error) {
 	for err := range errChan {
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 			a.ShowError(err, views.ErrorWarning)
 		}
 	}
@@ -62,12 +65,38 @@ func (a *App) ShowConnectionView() {
 	a.window.SetContent(a.currentView)
 }
 
+func (a *App) SetRendezvousView(onConnect func(string)) {
+	a.rendezvousView = views.NewRendezvousView(onConnect)
+}
+
+func (a *App) ShowRendezvousView() {
+	if a.rendezvousView != nil {
+		a.window.SetContent(a.rendezvousView.Build())
+	}
+}
+
 func (a *App) ShowError(err error, severity views.ErrorSeverity) {
-	a.errorView.ShowError(err, severity)
-	a.window.SetContent(a.errorView.Build())
+	fyne.Do(func() {
+		a.errorView.ShowError(err, severity)
+		a.window.SetContent(a.errorView.Build())
+	})
 }
 
 func (app *App) Run() {
-	app.window.SetContent(app.connectionView.Build())
+	// Show rendezvous view first if set, otherwise show connection view
+	if app.rendezvousView != nil {
+		app.window.SetContent(app.rendezvousView.Build())
+	} else {
+		app.window.SetContent(app.connectionView.Build())
+	}
 	app.window.ShowAndRun()
+}
+
+func (app *App) SetDisconnectCallback(callback func()) {
+	if app.MainView != nil {
+		app.MainView.SetDisconnectCallback(callback)
+	}
+	if app.connectionView != nil {
+		app.connectionView.SetCancelCallback(callback)
+	}
 }

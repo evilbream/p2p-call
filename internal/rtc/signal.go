@@ -15,6 +15,7 @@ import (
 
 type Signal struct {
 	sessionID  string
+	rendezvous string
 	handshake  *signaling.HandshakeManager
 	stream     *negotiator.StreamHandler
 	negotiator *negotiator.Negotiator
@@ -23,7 +24,7 @@ type Signal struct {
 	peerID     peer.ID
 }
 
-func NewSignal(sessionID string, pc *webrtc.PeerConnection) *Signal {
+func NewSignal(sessionID string, pc *webrtc.PeerConnection, rendezvous string) *Signal {
 	handshake := signaling.NewHandshake()
 	stream := negotiator.NewStreamHandler(sessionID, handshake.MarkReady)
 	negotiator := negotiator.NewNegotiator(pc, stream)
@@ -34,6 +35,7 @@ func NewSignal(sessionID string, pc *webrtc.PeerConnection) *Signal {
 		stream:     stream,
 		negotiator: negotiator,
 		handshake:  handshake,
+		rendezvous: rendezvous,
 	}
 }
 
@@ -42,7 +44,7 @@ func (s *Signal) StartWebrtcCon(ctx context.Context) error {
 	s.negotiator.SetupCallbacks()
 
 	// Discovery
-	dscvr, err := discovery.NewDiscover(s.handleStream)
+	dscvr, err := discovery.NewDiscover(s.handleStream, s.rendezvous)
 	if err != nil {
 		return fmt.Errorf("failed to create discovery: %w", err)
 	}
